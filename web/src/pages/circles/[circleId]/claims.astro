@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { ClaimsView } from "../../../components/ClaimsView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Claims">
+  <ClaimsView client:load circleId={circleId!} />
+</Base>

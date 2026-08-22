@@ -1,0 +1,10 @@
+---
+import Base from "../../layouts/Base.astro";
+import { AcceptInvite } from "../../components/AcceptInvite";
+
+export const prerender = false;
+const { token } = Astro.params;
+---
+<Base title="Invitation">
+  <AcceptInvite client:load token={token!} />
+</Base>

@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { HistoryView } from "../../../components/HistoryView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="History">
+  <HistoryView client:load circleId={circleId!} />
+</Base>

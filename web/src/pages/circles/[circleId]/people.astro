@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { PeopleView } from "../../../components/PeopleView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="People">
+  <PeopleView client:load circleId={circleId!} />
+</Base>

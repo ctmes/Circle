@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { DecisionsView } from "../../../components/DecisionsView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Decisions">
+  <DecisionsView client:load circleId={circleId!} />
+</Base>

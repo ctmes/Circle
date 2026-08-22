@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { ExportView } from "../../../components/ExportView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Export">
+  <ExportView client:load circleId={circleId!} />
+</Base>

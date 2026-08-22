@@ -1,0 +1,10 @@
+---
+import Base from "../../layouts/Base.astro";
+import { OrganisationView } from "../../components/OrganisationView";
+
+export const prerender = false;
+const { orgSlug } = Astro.params;
+---
+<Base title="Organisation">
+  <OrganisationView client:load slug={orgSlug!} />
+</Base>

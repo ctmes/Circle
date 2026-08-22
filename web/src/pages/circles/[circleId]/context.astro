@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { ContextView } from "../../../components/ContextView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Context">
+  <ContextView client:load circleId={circleId!} />
+</Base>

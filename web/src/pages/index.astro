@@ -1,0 +1,8 @@
+---
+// The index only decides where to send you; the API is the source of truth on
+// whether the stored token is still good.
+---
+<script>
+  const token = localStorage.getItem("circle.token");
+  location.replace(token ? "/circles" : "/login");
+</script>
