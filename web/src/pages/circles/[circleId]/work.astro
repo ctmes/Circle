@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { WorkView } from "../../../components/WorkView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Work">
+  <WorkView client:load circleId={circleId!} />
+</Base>

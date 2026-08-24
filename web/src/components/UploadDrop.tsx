@@ -97,9 +97,11 @@ export function UploadDrop({
             type="checkbox"
             checked={agentRead}
             onChange={(e) => setAgentRead(e.target.checked)}
-            className="accent-[var(--derived)]"
+            className="!accent-[var(--derived)]"
           />
-          <span className="label !text-[var(--derived)]">readable by the Steward</span>
+          <span className="text-[0.8125rem] font-[560] text-[var(--derived)]">
+            Readable by the Steward
+          </span>
         </label>
       }
     >
@@ -120,21 +122,44 @@ export function UploadDrop({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") fileInput.current?.click();
         }}
-        className={`m-3 cursor-pointer border-2 border-dashed px-4 py-7 text-center transition-colors ${
+        className={`mx-5 mb-5 cursor-pointer rounded-[var(--r-card)] px-5 py-9 text-center outline-2 outline-dashed -outline-offset-2 transition-all duration-200 ${
           dragging
-            ? "border-[var(--ink)] bg-[var(--paper-sunk)]"
-            : "border-[var(--rule-strong)] hover:border-[var(--ink-muted)]"
+            ? "scale-[1.01] bg-[var(--accent-soft)] outline-[var(--accent)]"
+            : "bg-[var(--paper-inset)] outline-[var(--rule-strong)] hover:outline-[var(--ink-faint)]"
         }`}
       >
-        <p className="display text-sm font-600">
-          Drop files, or click to choose
+        <svg
+          width="26"
+          height="26"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className={`mx-auto mb-2.5 transition-colors ${
+            dragging ? "text-[var(--accent)]" : "text-[var(--ink-faint)]"
+          }`}
+        >
+          <path d="M12 16V4m0 0 4 4m-4-4L8 8" />
+          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+        </svg>
+
+        <p className="display text-[0.9375rem] font-[600]">
+          {dragging ? "Release to add" : "Drop files, or click to choose"}
         </p>
-        <p className="mt-1.5 mono text-[0.6875rem] leading-relaxed text-[var(--ink-faint)]">
-          {SUPPORTED.join(" · ")}
-        </p>
-        <p className="mt-2 text-xs italic text-[var(--ink-muted)]">
+        <p className="mx-auto mt-2 max-w-md text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
           The original is preserved unchanged and hashed on arrival. Replacing a
           file later creates a new version rather than overwriting this one.
+        </p>
+        {/*
+          The supported-type list is reference material, not something anyone
+          reads before their first drop — so it sits below the instruction at
+          the smallest useful size rather than competing with it.
+        */}
+        <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-[var(--ink-faint)]">
+          {SUPPORTED.join(" · ")}
         </p>
       </div>
 
@@ -150,15 +175,15 @@ export function UploadDrop({
       />
 
       {jobs.length > 0 && (
-        <ul className="border-t border-[var(--rule)]">
+        <ul>
           {jobs.map((j) => (
             <li
               key={j.id}
-              className="flex items-baseline justify-between gap-3 border-b border-[var(--rule)] px-4 py-2 last:border-0"
+              className="flex items-baseline justify-between gap-3 border-t border-[var(--rule)] px-5 py-2.5"
             >
-              <span className="mono truncate text-xs">{j.name}</span>
+              <span className="truncate text-[0.8125rem]">{j.name}</span>
               <span
-                className={`mono shrink-0 text-[0.6875rem] ${
+                className={`shrink-0 text-xs ${
                   j.state === "failed"
                     ? "text-[var(--signal)]"
                     : j.state === "done"
@@ -167,11 +192,11 @@ export function UploadDrop({
                 }`}
                 title={j.error}
               >
-                {j.state === "signing" && "requesting upload URL…"}
-                {j.state === "uploading" && "uploading to vault…"}
-                {j.state === "registering" && "recording provenance…"}
-                {j.state === "done" && "stored · verifying"}
-                {j.state === "failed" && (j.error ?? "failed")}
+                {j.state === "signing" && "Requesting upload URL…"}
+                {j.state === "uploading" && "Uploading to vault…"}
+                {j.state === "registering" && "Recording provenance…"}
+                {j.state === "done" && "Stored · verifying"}
+                {j.state === "failed" && (j.error ?? "Failed")}
               </span>
             </li>
           ))}

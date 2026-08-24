@@ -1,4 +1,13 @@
 Circle MVP — Technical Specification
+
+> **Amended, 2026-08-24.** Sections 1-19 describe the single-organisation,
+> read-only-agent MVP as built. The direction has since changed on three points
+> those sections explicitly rule out: a Circle now spans several companies as
+> *parties*, conversation is a first-class object, and agents are authored by
+> customers and can execute. Section 20 records what changed and what still
+> holds. Where 1-19 and 20 disagree, 20 wins. The earlier numbering is left
+> alone because the code refers to those sections by number throughout.
+
 1. Product Summary
 Circle is a trusted, temporary operating environment for organisations collaborating on a consequential outcome.
 
@@ -928,3 +937,80 @@ Which exact version was approved, by whom, and using what evidence?
 What did the agent access and why?
 
 What happens to access and records when the mission closes?
+
+20. Amendment — Cross-Company Workflow and Executing Agents
+Why this changes
+The MVP was specified around one organisation running a bid review with guests. The target is now contractor-to-company and company-to-company projects, where no party is the centre and none of them report to each other. Two consequences follow that the original sections cannot express: responsibility belongs to an organisation before it belongs to a person, and the workflow — not the evidence record — is what people arrive for.
+
+20.1 Parties replace "external"
+`circles.organisation_id` is now the convener: the party that opened the Circle, holds the closure right, and receives the packet. It no longer implies everyone else is a guest.
+
+Each participating organisation gets a `circle_parties` row with a commercial position (convener, principal, contractor, subcontractor, advisor, observer). A party may be named before its organisation exists on the platform, because counterparties are written into a plan long before anyone from them signs in; `organisation_id` binds when the first member accepts an invitation.
+
+`circle_memberships.is_external` survives as the stored fast path the gate reads, but where a party is set the party is authoritative: external now means "not the convener".
+
+Permissions still come from each member's CircleRole. A party role is a commercial position, not a permission set — its job is to make the export packet read correctly. "Contractor" is worth more in a record than "external".
+
+20.2 The goal tree is the spine
+`goals` is self-referencing: a sub-goal is a goal with a parent, so it carries its own acceptance condition and its own responsible party — which is what happens when work is subcontracted a level down. Depth is capped in the service layer rather than the schema.
+
+Claims, decisions and commitments each gained a nullable `goal_id`. All nullable: a Circle that never builds a tree behaves exactly as before.
+
+Two things the original progress field could not do:
+
+`responsible_party_id` names the organisation answerable for a node. People leave projects; the company still owes the deliverable, and reassigning a person must not silently move liability between parties.
+
+`goal_schedule_changes` records every movement of a due date with a reason, who moved it, and — where the move affects another party — whether that party agreed. Its own table rather than an audit-log query, because a slipped date is the single most common thing inter-company projects end up arguing about. A date that can move silently carries no weight.
+
+Reported progress stays distinct from derived progress. A parent ignores its own stored figure and averages its children: a parent claiming 80% over sub-goals at 20% is the exact failure a status field exists to prevent.
+
+20.3 Conversation, attached to objects
+The non-goal in section 3 ("native chat, channels") is narrowed rather than reversed. Circle already had comments, welded to levers: `ClaimReview.comment`, `DecisionApproval.comment` and `CommitmentUpdate.note` each let a person speak only while changing a state. That is why the real conversation left for email — there was no way to ask a question without committing to an action.
+
+`comment_threads` hang off a goal, claim, decision, commitment or evidence item. A comment may carry an action (`action_type`/`action_id`) or carry nothing. The existing lever-notes become comments of the first kind, so an object's history reads as one conversation rather than two parallel records.
+
+Still not built: a Circle-wide channel. Once a general room exists the substance migrates into it and the structured record decays into something someone updates afterwards out of duty. Object-scoped threads have no "general" to drift into.
+
+Two rules that are load-bearing rather than cosmetic:
+
+Visibility defaults to `party`, the opposite default from evidence. Evidence is what the Circle exists to pool; a contractor working out its own position in front of the client is how a Circle stops being used at all. A party-scoped thread is invisible to everyone outside that party, the convener included.
+
+Export inclusion is per comment. A comment that carried a state change is part of the decision record and is always in the packet. Plain discussion is out unless someone marks it for the record — if every aside were discoverable in a dispute, people would self-censor into uselessness and the feature would be worth nothing.
+
+Mentions are the only push signal in the product. Everything else — a deadline, an assignment, an agent waiting on approval — is state someone has to remember to go and look at, which is the same as no signal at all.
+
+20.4 Agents are authored, and they execute
+This reverses section 2 ("one strictly read-only agent") and two non-goals in section 3 ("general agent builder", "autonomous external communication or source-system writes").
+
+It does not discard the verification machinery — it is what makes execution sellable. Two companies who do not fully trust each other will not let the other side's software touch a shared project unless every action is attributable, bounded by a declared mandate, and refusable. Claims, decisions and the audit chain stop being paperwork at the moment agents start acting.
+
+The rule the schema enforces: an agent proposes, and a side effect needs a human holding the authority of the party that bears it.
+
+`agent_blueprints` gained an owning organisation, an optional Circle scope, an author, and `execution_mode`: `read_only`, `propose`, or `execute`. The mode is an outer bound checked in AccessGate before the declared action list, so an authored blueprint asking for more than its mode allows gets nothing, and dropping an agent to `read_only` is one column that stops everything it could do without editing its tools. The Steward is `propose` and stays there.
+
+`agent_tools` declares the commands an agent may run, classified by `side_effect` — none, circle_write, external_read, external_write, financial. Classification is by consequence rather than by what the tool is called, so the approval rules hold for tools nobody has written yet. A blueprint may raise a tool's approval bar and never lower it: an author cannot mark their own payment tool as needing nobody.
+
+`agent_actions` is the execution ledger. The row is written at `proposed`, before anything is attempted, so a refused or failed action leaves the same trail as a successful one — the same reason `agent_runs` records its retrieval manifest before the model call. `tool_key` and `side_effect` are stored flat so the ledger still reads correctly after a blueprint is edited or a tool removed. Approval reuses the decision machinery rather than inventing a second one. `on_behalf_of_party_id` carries the authority: an agent never acts for "the Circle", it acts for a party, and that party carries the consequence.
+
+`agent_connections` lets a party bring its own agent. It runs under that party and its own credentials; Circle never holds the raw secret. `credential_ref` points at the secret store and `key_fingerprint` is what the counterparty is shown when asked to admit it — they approve a specific key, not a name anyone can type. Admission is a decision, not a setting.
+
+What still holds from section 9: an agent has no membership row and cannot inherit one. Agent read stays opt-in per evidence item and is never inherited. Closure stops agents outright. An agent still cannot approve on behalf of a person — including its own actions.
+
+20.5 What this amendment does not yet build
+Named honestly, because the schema now implies them:
+
+No notification transport. `comment_mentions` records who was mentioned and when they were told; nothing sends anything yet. Until it does, the goal tree's deadlines are still state nobody is pushed toward.
+
+No executor. `agent_actions` records proposals and approvals correctly; the runner that takes an approved action and performs it, honouring retries and the idempotency key, is not written.
+
+No party-scoped resource permissions. "Contributors see only their branch of the tree" is a real design question, not a column — today permissions remain Circle-wide plus per-resource overrides.
+
+No handoff. Reassigning everything one departing person owns is still a hunt rather than one action.
+
+Closure and export do not yet read the goal tree, the comment threads, or the action ledger. The packet is the product's endpoint and it currently ends at the MVP's objects.
+
+No executor UI. The action queue approves and refuses; nothing runs an approved action yet, so `executed` is reachable only from a test.
+
+No notification transport, still. Mentions are recorded and surfaced in-app on Now and in the inbox, but nothing leaves the browser — no email, no push.
+
+Closure and export still end at the MVP's objects: the packet does not yet read the goal tree, the threads, or the action ledger.

@@ -34,7 +34,12 @@ enum CircleRole: string
                 Permission::DecisionApprove,
                 Permission::CommitmentCreate,
                 Permission::CommitmentUpdate,
+                Permission::GoalCreate,
+                Permission::GoalUpdate,
+                Permission::GoalAccept,
+                Permission::CommentCreate,
                 Permission::AgentRun,
+                Permission::AgentApprove,
                 Permission::ExportCreate,
             ],
 
@@ -47,6 +52,8 @@ enum CircleRole: string
                 Permission::ClaimReview,
                 Permission::CommitmentCreate,
                 Permission::CommitmentUpdate,
+                Permission::GoalUpdate,
+                Permission::CommentCreate,
                 Permission::AgentRun,
             ],
 
@@ -56,6 +63,8 @@ enum CircleRole: string
                 Permission::ResourceUpload,
                 Permission::ClaimCreate,
                 Permission::CommitmentUpdate,
+                Permission::GoalUpdate,
+                Permission::CommentCreate,
             ],
 
             self::Viewer => [
@@ -64,14 +73,22 @@ enum CircleRole: string
             ],
 
             // The agent never receives view/download rights that a human role
-            // implies. It reads only through resource.agent_read, and every
-            // object it creates is a draft for human confirmation.
+            // implies. It reads only through resource.agent_read. This list is
+            // a *floor*, not a grant: the blueprint's execution_mode and
+            // allowed_actions narrow it, and an agent holds nothing it has not
+            // declared. Anything with a side effect still lands in the
+            // agent_actions ledger and waits for a human.
             self::Agent => [
                 Permission::CircleView,
                 Permission::ResourceAgentRead,
                 Permission::ClaimCreate,
                 Permission::DecisionCreate,
                 Permission::CommitmentCreate,
+                Permission::CommitmentUpdate,
+                Permission::GoalCreate,
+                Permission::GoalUpdate,
+                Permission::CommentCreate,
+                Permission::AgentExecute,
             ],
         };
     }

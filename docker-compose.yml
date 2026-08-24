@@ -58,7 +58,13 @@ services:
       context: ./docker/php
     working_dir: /app
     command: php artisan serve --host=0.0.0.0 --port=8000
-    volumes: ["./api:/app"]
+    volumes:
+      - ./api:/app
+      # Keeping vendor/ off the Windows bind mount. Reading it through the
+      # host filesystem measured ~1200x slower than a container-local path,
+      # which is what made every API request cost 0.1-1.9s instead of 85ms.
+      # Populate it with: docker compose run --rm api composer install
+      - api_vendor:/app/vendor
     ports: ["8000:8000"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -72,7 +78,13 @@ services:
       context: ./docker/php
     working_dir: /app
     command: php artisan queue:work --queue=media,agents,default --tries=3 --timeout=900
-    volumes: ["./api:/app"]
+    volumes:
+      - ./api:/app
+      # Keeping vendor/ off the Windows bind mount. Reading it through the
+      # host filesystem measured ~1200x slower than a container-local path,
+      # which is what made every API request cost 0.1-1.9s instead of 85ms.
+      # Populate it with: docker compose run --rm api composer install
+      - api_vendor:/app/vendor
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -84,7 +96,13 @@ services:
   web:
     image: node:24-alpine
     working_dir: /app
-    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    # .astro/dev.json holds the dev server's PID and lives on the bind mount,
+    # so a stopped container leaves it behind and the next start refuses with
+    # "Another astro dev server is already running". Nothing in a fresh
+    # container can be the process it names, so the stale lock just goes.
+    # (`astro dev --force` is not the fix: it SIGTERMs that PID, which in a
+    # new container is this very process.)
+    command: sh -c "rm -f /app/.astro/dev.json && npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules
@@ -99,7 +117,13 @@ services:
       context: ./docker/php
     working_dir: /app
     command: php artisan schedule:work
-    volumes: ["./api:/app"]
+    volumes:
+      - ./api:/app
+      # Keeping vendor/ off the Windows bind mount. Reading it through the
+      # host filesystem measured ~1200x slower than a container-local path,
+      # which is what made every API request cost 0.1-1.9s instead of 85ms.
+      # Populate it with: docker compose run --rm api composer install
+      - api_vendor:/app/vendor
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -108,3 +132,4 @@ volumes:
   pgdata:
   miniodata:
   web_node_modules:
+  api_vendor:

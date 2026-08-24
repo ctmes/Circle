@@ -39,9 +39,9 @@ export function ContextView({ circleId }: { circleId: string }) {
         <Body
           circleId={circleId}
           canUpload={
-            circle.my_access?.permissions.includes("resource.upload") === true &&
-            !circle.is_closed &&
-            !circle.is_expired
+            circle?.my_access?.permissions.includes("resource.upload") === true &&
+            !circle?.is_closed &&
+            !circle?.is_expired
           }
         />
       )}
@@ -66,7 +66,7 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
     [circleId, review],
   );
 
-  if (loading) return <Loading what="evidence register" />;
+  if (loading) return <Panel><Loading what="evidence register" /></Panel>;
   if (error) return <ErrorNote error={error} />;
 
   const items = (data ?? []).filter((item) => {
@@ -86,12 +86,12 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
         <Panel
           title="Evidence register"
           meta={
-            <span className="mono text-xs text-[var(--ink-faint)]">
+            <span className="text-xs text-[var(--ink-faint)]">
               {items.length} of {data?.length ?? 0}
             </span>
           }
         >
-          <div className="flex flex-wrap gap-2 border-b border-[var(--rule)] px-3 py-2">
+          <div className="flex flex-wrap gap-2 px-5 pb-4">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -121,15 +121,15 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
                   <button
                     onClick={() => setSelected(item.id)}
                     aria-current={selected === item.id}
-                    className={`block w-full border-b border-[var(--rule)] px-4 py-3 text-left transition-colors ${
+                    className={`block w-full border-t border-[var(--rule)] px-5 py-3.5 text-left transition-colors ${
                       selected === item.id
-                        ? "bg-[var(--paper-sunk)]"
+                        ? "bg-[var(--accent-soft)] shadow-[inset_3px_0_0_var(--accent)]"
                         : "hover:bg-[var(--paper-sunk)]"
                     }`}
                   >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="display text-sm font-600">{item.name}</span>
-                      <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+                      <span className="display text-[0.9375rem] font-[600]">{item.name}</span>
+                      <span className="text-xs text-[var(--ink-faint)]">
                         {item.current_version?.lane ?? "—"} ·{" "}
                         {formatBytes(item.current_version?.byte_size ?? null)}
                         {item.version_count > 1 && (
@@ -146,7 +146,7 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
                       />
                     </div>
 
-                    <p className="mt-1.5 mono text-[0.6875rem] text-[var(--ink-faint)]">
+                    <p className="mt-1.5 text-xs text-[var(--ink-faint)]">
                       {item.uploader.name ?? "unknown"} · {formatDate(item.created_at)}
                       {item.agent_read && (
                         <span className="ml-2 text-[var(--derived)]">agent-readable</span>
@@ -163,7 +163,7 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
         </Panel>
       </div>
 
-      <div className="xl:sticky xl:top-4 xl:self-start">
+      <div className="xl:sticky xl:top-[4.25rem] xl:self-start">
         {selected ? (
           <Detail key={selected} itemId={selected} circleId={circleId} onChanged={reload} />
         ) : (
@@ -222,9 +222,9 @@ function Detail({
 
   return (
     <div className="space-y-4">
-      <Panel title="Record" meta={<span className="mono text-xs text-[var(--ink-faint)]">{item.current_version?.lane}</span>}>
-        <div className="px-4 py-3">
-          <h3 className="display text-base font-700 leading-snug">{item.name}</h3>
+      <Panel title="Record" meta={<span className="text-xs text-[var(--ink-faint)]">{item.current_version?.lane}</span>}>
+        <div className="px-5 py-3.5">
+          <h3 className="display text-base font-[650] leading-snug">{item.name}</h3>
           <div className="mt-2">
             <TrustStamp
               origin={item.origin_status}
@@ -234,7 +234,7 @@ function Detail({
           </div>
         </div>
 
-        <div className="border-t border-[var(--rule)] px-4 py-3">
+        <div className="border-t border-[var(--rule)] px-5 py-3.5">
           <Fact label="Supplied by">{item.uploader.name ?? "unknown"}</Fact>
           <Fact label="Received">{formatDate(item.created_at, true)}</Fact>
           <Fact label="Classification">{item.classification}</Fact>
@@ -253,7 +253,7 @@ function Detail({
 
         {/* Per-lane extraction state, so "nothing here" is never ambiguous. */}
         {current && (
-          <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-[var(--rule)] px-4 py-2.5">
+          <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-[var(--rule)] px-5 py-3">
             <PipelineMark label="original" status={current.processing_status} />
             <PipelineMark label="text" status={current.extracted_text_status} />
             <PipelineMark label="preview" status={current.preview_status} />
@@ -262,71 +262,71 @@ function Detail({
         )}
 
         {current?.processing_error && (
-          <p className="border-t border-[var(--rule)] px-4 py-2 text-xs text-[var(--signal)]">
+          <p className="border-t border-[var(--rule)] px-5 py-2.5 text-xs text-[var(--signal)]">
             {current.processing_error}
           </p>
         )}
 
         {/* EXIF is displayed but never presented as proof (spec §7). */}
         {current?.metadata?.exif && (
-          <div className="border-t border-[var(--rule)] px-4 py-3">
+          <div className="border-t border-[var(--rule)] px-5 py-3.5">
             <p className="label">Device metadata</p>
             <dl className="mt-1 grid grid-cols-2 gap-x-4">
               {Object.entries(current.metadata.exif).map(([k, v]) => (
                 <div key={k} className="flex gap-2">
-                  <dt className="mono text-[0.6875rem] text-[var(--ink-faint)]">{k}</dt>
+                  <dt className="text-xs text-[var(--ink-faint)]">{k}</dt>
                   <dd className="mono text-[0.6875rem]">{String(v)}</dd>
                 </div>
               ))}
             </dl>
-            <p className="mt-2 text-xs italic leading-snug text-[var(--ink-muted)]">
+            <p className="mt-2 text-xs leading-snug text-[var(--ink-muted)]">
               {current.metadata.exif_caveat}
             </p>
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2 border-t border-[var(--rule)] px-4 py-3">
+        <div className="flex flex-wrap gap-2 border-t border-[var(--rule)] px-5 py-3.5">
           {current && (
             <Button onClick={() => download(current)} disabled={!item.downloadable}>
               Download original
             </Button>
           )}
-          <Button variant="quiet" onClick={() => act(`/evidence/${item.id}/review`, { review_status: "reviewed" })}>
+          <Button onClick={() => act(`/evidence/${item.id}/review`, { review_status: "reviewed" })}>
             Mark reviewed
           </Button>
-          <Button variant="quiet" onClick={() => act(`/evidence/${item.id}/review`, { review_status: "contested" })}>
+          <Button variant="danger" onClick={() => act(`/evidence/${item.id}/review`, { review_status: "contested" })}>
             Contest
           </Button>
-          <Button variant="quiet" onClick={() => act(`/evidence/${item.id}/mark-stale`)}>
+          <Button variant="danger" onClick={() => act(`/evidence/${item.id}/mark-stale`)}>
             Flag stale
           </Button>
         </div>
 
-        {!!actionError && <div className="px-4 pb-3"><ErrorNote error={actionError} /></div>}
+        {!!actionError && <div className="px-5 pb-4"><ErrorNote error={actionError} /></div>}
       </Panel>
 
-      <Panel title="Version history" meta={<span className="mono text-xs text-[var(--ink-faint)]">{item.versions?.length ?? 0}</span>}>
+      <Panel title="Version history" meta={<span className="text-xs text-[var(--ink-faint)]">{item.versions?.length ?? 0}</span>}>
         {!item.versions?.length ? (
           <Empty>No versions.</Empty>
         ) : (
           <ul>
             {[...item.versions].reverse().map((v) => (
-              <li key={v.id} className="border-b border-[var(--rule)] px-4 py-2.5 last:border-0">
+              <li key={v.id} className="border-t border-[var(--rule)] px-5 py-3">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="display text-sm font-600">v{v.version_number}</span>
+                  <span className="display text-sm font-[600]">v{v.version_number}</span>
                   <button
                     onClick={() => download(v)}
-                    className="label hover:text-[var(--ink)]"
+                    className="rounded-md px-1.5 py-0.5 text-xs font-[560] text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)] disabled:opacity-40"
                     disabled={!item.downloadable}
                   >
-                    download
+                    Download
                   </button>
                 </div>
-                <p className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+                <p className="text-xs text-[var(--ink-faint)]">
                   {v.original_filename} · {formatBytes(v.byte_size)} ·{" "}
                   {v.created_by.name ?? "unknown"} · {formatDate(v.created_at, true)}
                 </p>
-                <p className="mt-0.5 mono text-[0.625rem] text-[var(--ink-faint)]">
+                <p className="mt-0.5 text-xs text-[var(--ink-faint)]">
                   {v.sha256 ? <Copyable value={v.sha256} truncate={16} /> : "not hashed"}
                   {v.supersedes_version_id && <span className="ml-2">supersedes v{v.version_number - 1}</span>}
                 </p>
@@ -346,11 +346,11 @@ function Detail({
               <a
                 key={c.claim_id + c.evidence_version_id}
                 href={`/circles/${circleId}/claims#${c.claim_id}`}
-                className="block border-b border-[var(--rule)] px-4 py-2.5 no-underline hover:bg-[var(--paper-sunk)]"
+                className="block border-b border-[var(--rule)] px-5 py-3 no-underline hover:bg-[var(--paper-sunk)]"
               >
                 <p className="label">claim</p>
                 <p className="text-sm leading-snug">{c.statement}</p>
-                <p className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+                <p className="text-xs text-[var(--ink-faint)]">
                   cites {describeLocator("", c.locator)} · {c.status}
                 </p>
               </a>
@@ -359,11 +359,11 @@ function Detail({
               <a
                 key={d.decision_id}
                 href={`/circles/${circleId}/decisions#${d.decision_id}`}
-                className="block border-b border-[var(--rule)] px-4 py-2.5 no-underline last:border-0 hover:bg-[var(--paper-sunk)]"
+                className="block border-t border-[var(--rule)] px-5 py-3 no-underline hover:bg-[var(--paper-sunk)]"
               >
                 <p className="label">decision</p>
                 <p className="text-sm leading-snug">{d.title}</p>
-                <p className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+                <p className="text-xs text-[var(--ink-faint)]">
                   {d.status} · bound to v{d.subject_version ?? "?"}
                 </p>
               </a>

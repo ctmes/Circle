@@ -42,7 +42,7 @@ function Body({ circleId }: { circleId: string }) {
     [circleId, type, actor],
   );
 
-  if (loading) return <Loading what="history" />;
+  if (loading) return <Panel><Loading what="history" /></Panel>;
   if (error) return <ErrorNote error={error} />;
   if (!data) return null;
 
@@ -55,9 +55,9 @@ function Body({ circleId }: { circleId: string }) {
 
       <Panel
         title="Every recorded action"
-        meta={<span className="mono text-xs text-[var(--ink-faint)]">{data.data.length} shown</span>}
+        meta={<span className="text-xs text-[var(--ink-faint)]">{data.data.length} shown</span>}
       >
-        <div className="flex flex-wrap gap-2 border-b border-[var(--rule)] px-3 py-2">
+        <div className="flex flex-wrap gap-2 px-5 pb-4">
           <select value={actor} onChange={(e) => setActor(e.target.value)} className={filterClass}>
             <option value="">anyone</option>
             <option value="user">people</option>
@@ -110,24 +110,37 @@ function ChainBanner({ chain, circleId }: { chain: ChainStatus; circleId: string
         </Button>
       }
     >
-      <div className="px-4 py-3.5">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <span className={`stamp ${state.valid ? "text-[var(--settled)]" : "text-[var(--signal)]"}`}>
-            {state.valid ? "chain intact" : "chain broken"}
+      {/*
+        The verdict leads, at a size you cannot skim past, with the count of
+        what was actually checked next to it. Everything below is the reasoning.
+      */}
+      <div className="px-5 pb-5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span
+            className="inline-flex items-center gap-2 rounded-[var(--r-chip)] px-3 py-1.5"
+            style={{
+              color: state.valid ? "var(--settled)" : "var(--signal)",
+              background: state.valid ? "var(--settled-soft)" : "var(--signal-soft)",
+            }}
+          >
+            <span className="inline-block size-2 rounded-full bg-current" aria-hidden="true" />
+            <span className="text-[0.9375rem] font-[620]">
+              {state.valid ? "Chain intact" : "Chain broken"}
+            </span>
           </span>
-          <span className="mono text-xs text-[var(--ink-muted)]">
+          <span className="text-[0.8125rem] text-[var(--ink-muted)] tabular">
             {state.events_checked} events re-hashed and checked in order
           </span>
         </div>
 
         {state.valid ? (
-          <p className="mt-2 max-w-3xl text-sm leading-snug text-[var(--ink-muted)]">
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--ink-muted)]">
             Every event's hash was recomputed from its contents and matched, and
             every event links to the one before it. Nothing in this Circle's
             record has been altered, removed or reordered since it was written.
           </p>
         ) : (
-          <p className="mt-2 max-w-3xl text-sm leading-snug text-[var(--ink)]">
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-[var(--ink)]">
             {state.reason}
             {state.broken_at_event_id && (
               <>
@@ -138,7 +151,7 @@ function ChainBanner({ chain, circleId }: { chain: ChainStatus; circleId: string
           </p>
         )}
 
-        <p className="mt-2 text-xs italic leading-snug text-[var(--ink-faint)]">
+        <p className="mt-3 max-w-3xl text-xs leading-relaxed text-[var(--ink-faint)]">
           Each event hashes its own contents together with the previous event's
           hash. This is tamper evidence for this application's own record — not
           an independently anchored ledger.
@@ -154,11 +167,11 @@ function EventCard({ event, index }: { event: AuditEventRow; index: number }) {
 
   return (
     <li
-      className={`lay-in border-b border-[var(--rule)] last:border-0 ${denied ? "bg-[var(--signal-soft)]" : ""}`}
+      className={`lay-in border-t border-[var(--rule)] ${denied ? "bg-[var(--signal-soft)]" : ""}`}
       style={{ animationDelay: `${Math.min(index, 24) * 18}ms` }}
     >
-      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-3 px-4 py-2.5">
-        <span className="mono text-[0.6875rem] text-[var(--ink-faint)] tabular">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-3 px-5 py-3">
+        <span className="text-xs text-[var(--ink-faint)] tabular">
           #{event.sequence}
         </span>
 
@@ -166,7 +179,7 @@ function EventCard({ event, index }: { event: AuditEventRow; index: number }) {
           <p className={`text-sm leading-snug ${denied ? "text-[var(--signal)]" : ""}`}>
             {event.summary}
           </p>
-          <p className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+          <p className="text-xs text-[var(--ink-faint)]">
             <span className={ACTOR_TONE[event.actor_type]}>{event.actor_type}</span>
             {" · "}
             {event.event_type}
@@ -175,18 +188,21 @@ function EventCard({ event, index }: { event: AuditEventRow; index: number }) {
         </div>
 
         <div className="flex shrink-0 items-baseline gap-3">
-          <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+          <span className="text-xs text-[var(--ink-faint)]">
             {formatDate(event.occurred_at, true)}
           </span>
-          <button onClick={() => setOpen((v) => !v)} className="label hover:text-[var(--ink)]">
-            {open ? "hide" : "raw"}
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="rounded-md px-1.5 py-0.5 text-xs font-[560] text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
+          >
+            {open ? "Hide" : "Raw"}
           </button>
         </div>
       </div>
 
       {open && (
-        <div className="border-t border-[var(--rule)] bg-[var(--paper-sunk)] px-4 py-3">
-          <div className="grid gap-1 sm:grid-cols-2">
+        <div className="border-t border-[var(--rule)] bg-[var(--paper-inset)] px-5 py-4">
+          <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
             <p className="mono text-[0.6875rem]">
               <span className="label">event</span> <Copyable value={event.id} />
             </p>
@@ -209,7 +225,7 @@ function EventCard({ event, index }: { event: AuditEventRow; index: number }) {
           </div>
 
           {event.metadata && Object.keys(event.metadata).length > 0 && (
-            <pre className="mt-2 overflow-x-auto border border-[var(--rule)] bg-[var(--paper)] p-2 mono text-[0.6875rem] leading-relaxed">
+            <pre className="mono mt-2.5 overflow-x-auto rounded-[var(--r-control)] bg-[var(--paper-inset)] p-3 text-[0.6875rem] leading-relaxed">
               {JSON.stringify(event.metadata, null, 2)}
             </pre>
           )}

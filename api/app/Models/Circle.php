@@ -13,17 +13,19 @@ class Circle extends Model
     use HasUlids;
 
     protected $fillable = [
-        'organisation_id', 'name', 'purpose', 'status',
+        'organisation_id', 'name', 'purpose', 'status', 'progress',
         'owner_user_id', 'starts_at', 'expires_at', 'closed_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'status'     => CircleStatus::class,
-            'starts_at'  => 'datetime',
-            'expires_at' => 'datetime',
-            'closed_at'  => 'datetime',
+            'status'          => CircleStatus::class,
+            'progress'        => 'integer',
+            'progress_set_at' => 'datetime',
+            'starts_at'       => 'datetime',
+            'expires_at'      => 'datetime',
+            'closed_at'       => 'datetime',
         ];
     }
 
@@ -40,6 +42,42 @@ class Circle extends Model
     public function memberships(): HasMany
     {
         return $this->hasMany(CircleMembership::class);
+    }
+
+    /**
+     * The organisations this Circle spans. `organisation_id` above is the
+     * convener — the party that opened it and holds the closure right — not
+     * the owner of everyone in it.
+     */
+    public function parties(): HasMany
+    {
+        return $this->hasMany(CircleParty::class);
+    }
+
+    /** Top-level goals only; sub-goals come through Goal::children(). */
+    public function goals(): HasMany
+    {
+        return $this->hasMany(Goal::class)->whereNull('parent_goal_id')->orderBy('position');
+    }
+
+    public function allGoals(): HasMany
+    {
+        return $this->hasMany(Goal::class);
+    }
+
+    public function commentThreads(): HasMany
+    {
+        return $this->hasMany(CommentThread::class);
+    }
+
+    public function agentActions(): HasMany
+    {
+        return $this->hasMany(AgentAction::class);
+    }
+
+    public function agentConnections(): HasMany
+    {
+        return $this->hasMany(AgentConnection::class);
     }
 
     public function resources(): HasMany

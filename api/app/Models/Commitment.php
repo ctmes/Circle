@@ -13,8 +13,8 @@ class Commitment extends Model
     use HasUlids;
 
     protected $fillable = [
-        'circle_id', 'title', 'description', 'acceptance_condition', 'status',
-        'owner_user_id', 'created_by_user_id', 'created_by_type',
+        'circle_id', 'goal_id', 'title', 'description', 'acceptance_condition', 'status',
+        'owner_user_id', 'owner_party_id', 'created_by_user_id', 'created_by_type',
         'agent_run_id', 'due_at', 'completed_at',
     ];
 
@@ -35,6 +35,22 @@ class Commitment extends Model
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_user_id');
+    }
+
+    /** The sub-goal this work serves, once the Circle has a goal tree. */
+    public function goal(): BelongsTo
+    {
+        return $this->belongsTo(Goal::class);
+    }
+
+    /**
+     * The organisation answerable for it. People leave projects; the company
+     * still owes the deliverable, and reassignment should not silently move
+     * liability from one party to another.
+     */
+    public function ownerParty(): BelongsTo
+    {
+        return $this->belongsTo(CircleParty::class, 'owner_party_id');
     }
 
     public function updates(): HasMany

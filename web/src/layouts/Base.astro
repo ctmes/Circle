@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import { ClientRouter } from "astro:transitions";
 
 interface Props {
   title: string;
@@ -18,8 +19,30 @@ const { title } = Astro.props;
       name="description"
       content="A trusted, temporary operating environment for organisations collaborating on a consequential outcome."
     />
-    <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <!--
+      Light is the default everywhere; the OS setting is deliberately not
+      consulted. This runs before the first paint so a reader who has chosen
+      dark never sees a white flash on navigation.
+    -->
+    <script is:inline>
+      try {
+        if (localStorage.getItem("circle-theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch {
+        /* Storage can be blocked entirely; light is the correct fallback. */
+      }
+    </script>
+    <meta name="theme-color" content="#fbfbfd" />
+
+    <!--
+      Moving between the ten Circle views swaps the document instead of
+      reloading it. The point is not the animation: a full reload tears down
+      the JS context, so every island remounted and refetched from nothing —
+      including the Circle itself, which is identical on all ten tabs. Keeping
+      the context alive is what lets `useAsync` reuse it (see ui.tsx).
+    -->
+    <ClientRouter />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

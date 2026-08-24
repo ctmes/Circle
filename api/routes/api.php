@@ -1,14 +1,18 @@
 <?php
 
 use App\Http\Controllers\Api\AgentController;
+use App\Http\Controllers\Api\AgentStudioController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CircleController;
 use App\Http\Controllers\Api\ClaimController;
+use App\Http\Controllers\Api\CommentController;
 use App\Http\Controllers\Api\DecisionController;
 use App\Http\Controllers\Api\EvidenceController;
+use App\Http\Controllers\Api\GoalController;
 use App\Http\Controllers\Api\HistoryController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\OrganisationController;
+use App\Http\Controllers\Api\PartyController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -75,6 +79,48 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/circles/{circle}/commitments', [DecisionController::class, 'storeCommitment']);
     Route::get('/circles/{circle}/commitments', [DecisionController::class, 'indexCommitments']);
     Route::patch('/commitments/{commitment}', [DecisionController::class, 'updateCommitment']);
+
+    // --- Parties -----------------------------------------------------------
+    Route::get('/circles/{circle}/parties', [PartyController::class, 'index']);
+    Route::post('/circles/{circle}/parties', [PartyController::class, 'store']);
+    Route::patch('/circles/{circle}/parties/{party}', [PartyController::class, 'update']);
+
+    // --- Goals: the workflow spine -----------------------------------------
+    Route::get('/circles/{circle}/goals', [GoalController::class, 'index']);
+    Route::post('/circles/{circle}/goals', [GoalController::class, 'store']);
+    Route::get('/goals/{goal}', [GoalController::class, 'show']);
+    Route::patch('/goals/{goal}', [GoalController::class, 'update']);
+    Route::patch('/goals/{goal}/progress', [GoalController::class, 'setProgress']);
+    Route::post('/goals/{goal}/accept', [GoalController::class, 'accept']);
+    // Rescheduling is its own verb because it demands a reason.
+    Route::post('/goals/{goal}/reschedule', [GoalController::class, 'reschedule']);
+    Route::post('/schedule-changes/{change}/agree', [GoalController::class, 'agreeReschedule']);
+
+    // --- Comments ----------------------------------------------------------
+    Route::get('/circles/{circle}/threads', [CommentController::class, 'index']);
+    Route::get('/circles/{circle}/inbox', [CommentController::class, 'inbox']);
+    Route::post('/circles/{circle}/threads', [CommentController::class, 'store']);
+    Route::post('/threads/{thread}/comments', [CommentController::class, 'reply']);
+    Route::post('/threads/{thread}/share', [CommentController::class, 'share']);
+    Route::post('/threads/{thread}/resolve', [CommentController::class, 'resolve']);
+    Route::post('/comments/{comment}/for-the-record', [CommentController::class, 'markForRecord']);
+    Route::post('/circles/{circle}/mentions/read', [CommentController::class, 'readMentions']);
+    // Who an @mention can actually reach — asked per visibility, because the
+    // answer differs between a private thread and a Circle-wide one.
+    Route::get('/circles/{circle}/mentionable', [CommentController::class, 'mentionable']);
+    Route::get('/threads/{thread}/mentionable', [CommentController::class, 'threadMentionable']);
+
+    // --- Agent studio and the action queue ---------------------------------
+    Route::get('/circles/{circle}/agents', [AgentStudioController::class, 'index']);
+    Route::post('/circles/{circle}/agents', [AgentStudioController::class, 'store']);
+    Route::patch('/circles/{circle}/agents/{blueprint}', [AgentStudioController::class, 'update']);
+    Route::post('/circles/{circle}/agents/{blueprint}/tools', [AgentStudioController::class, 'addTool']);
+    Route::post('/circles/{circle}/agents/{blueprint}/instantiate', [AgentStudioController::class, 'instantiate']);
+    Route::get('/circles/{circle}/agent-connections', [AgentStudioController::class, 'connections']);
+    Route::post('/circles/{circle}/agent-connections', [AgentStudioController::class, 'connect']);
+    Route::get('/circles/{circle}/agent-actions', [AgentStudioController::class, 'queue']);
+    Route::post('/agent-actions/{action}/approve', [AgentStudioController::class, 'approve']);
+    Route::post('/agent-actions/{action}/reject', [AgentStudioController::class, 'reject']);
 
     // --- Agent, history and export -----------------------------------------
     Route::post('/circles/{circle}/agent-runs/steward-brief', [AgentController::class, 'stewardBrief']);

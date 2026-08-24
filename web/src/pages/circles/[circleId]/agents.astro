@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { AgentsView } from "../../../components/AgentsView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Agents">
+  <AgentsView client:load circleId={circleId!} />
+</Base>

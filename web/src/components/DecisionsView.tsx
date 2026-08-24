@@ -8,6 +8,7 @@ import {
   type Member,
 } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
+import { Discussion } from "./Thread";
 import { DECISION_TONE, DerivedStamp, StatusChip } from "./Trust";
 import {
   Button,
@@ -35,10 +36,10 @@ export function DecisionsView({ circleId }: { circleId: string }) {
         <Body
           circleId={circleId}
           canCreate={
-            circle.my_access?.permissions.includes("decision.create") === true && !circle.is_closed
+            circle?.my_access?.permissions.includes("decision.create") === true && !circle?.is_closed
           }
           canApprove={
-            circle.my_access?.permissions.includes("decision.approve") === true && !circle.is_closed
+            circle?.my_access?.permissions.includes("decision.approve") === true && !circle?.is_closed
           }
         />
       )}
@@ -61,7 +62,7 @@ function Body({
     [circleId],
   );
 
-  if (loading) return <Loading what="decisions" />;
+  if (loading) return <Panel><Loading what="decisions" /></Panel>;
   if (error) return <ErrorNote error={error} />;
 
   const decisions = data ?? [];
@@ -94,7 +95,7 @@ function Body({
           <Empty>Nothing is waiting on anyone.</Empty>
         ) : (
           pending.map((d, i) => (
-            <Row key={d.id} decision={d} canApprove={canApprove} onChanged={reload} index={i} />
+            <Row key={d.id} decision={d} circleId={circleId} canApprove={canApprove} onChanged={reload} index={i} />
           ))
         )}
       </Panel>
@@ -103,10 +104,10 @@ function Body({
         <Panel
           title="Drafts"
           tone="derived"
-          meta={<span className="mono text-xs text-[var(--ink-faint)]">need an approver</span>}
+          meta={<span className="text-xs text-[var(--ink-faint)]">need an approver</span>}
         >
           {drafts.map((d, i) => (
-            <Row key={d.id} decision={d} canApprove={false} onChanged={reload} index={i} />
+            <Row key={d.id} decision={d} circleId={circleId} canApprove={false} onChanged={reload} index={i} />
           ))}
         </Panel>
       )}
@@ -116,7 +117,7 @@ function Body({
           <Empty>Nothing resolved yet.</Empty>
         ) : (
           settled.map((d, i) => (
-            <Row key={d.id} decision={d} canApprove={false} onChanged={reload} index={i} />
+            <Row key={d.id} decision={d} circleId={circleId} canApprove={false} onChanged={reload} index={i} />
           ))
         )}
       </Panel>
@@ -126,11 +127,13 @@ function Body({
 
 function Row({
   decision,
+  circleId,
   canApprove,
   onChanged,
   index,
 }: {
   decision: Decision;
+  circleId: string;
   canApprove: boolean;
   onChanged: () => void;
   index: number;
@@ -138,6 +141,7 @@ function Row({
   const [error, setError] = useState<unknown>(null);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  const [talking, setTalking] = useState(false);
 
   async function resolve(outcome: "approve" | "reject") {
     setBusy(true);
@@ -155,20 +159,20 @@ function Row({
   return (
     <article
       id={decision.id}
-      className={`lay-in border-b border-[var(--rule)] px-4 py-4 last:border-0 ${
+      className={`lay-in border-t border-[var(--rule)] px-5 py-5 ${
         decision.derived ? "derived-panel" : ""
       }`}
       style={{ animationDelay: `${index * 25}ms` }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <h3 className="display max-w-2xl flex-1 text-base font-600 leading-snug">
+        <h3 className="display max-w-2xl flex-1 text-[1.0625rem] font-[620] leading-snug">
           {decision.title}
         </h3>
         <StatusChip status={decision.status} tone={DECISION_TONE[decision.status]} />
       </div>
 
       {decision.description && (
-        <p className="mt-1.5 max-w-3xl whitespace-pre-line text-sm leading-snug text-[var(--ink-muted)]">
+        <p className="mt-2 max-w-3xl whitespace-pre-line text-sm leading-relaxed text-[var(--ink-muted)]">
           {decision.description}
         </p>
       )}
@@ -179,7 +183,7 @@ function Row({
         </div>
       )}
 
-      <div className="mt-3 grid gap-x-8 sm:grid-cols-2">
+      <div className="mt-4 grid gap-x-8 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-4 py-2.5 sm:grid-cols-2">
         <div>
           <Fact label="Approver">{decision.approver.name ?? "not assigned"}</Fact>
           <Fact label="Requested by">{decision.created_by.name ?? "—"}</Fact>
@@ -198,7 +202,7 @@ function Row({
       </div>
 
       {decision.status === "superseded" && (
-        <p className="mt-3 border-l-2 border-[var(--signal)] pl-3 text-sm text-[var(--ink-muted)]">
+        <p className="mt-3 rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3.5 py-2.5 text-sm text-[var(--ink-muted)]">
           The approved subject gained a new version after this was approved. The
           approval covered version {decision.subject.version} only and does not
           carry forward — a fresh decision is required against the current version.
@@ -206,13 +210,13 @@ function Row({
       )}
 
       {decision.approval_history.length > 0 && (
-        <ul className="mt-3 space-y-1 border-l-2 border-[var(--rule)] pl-3">
+        <ul className="mt-3 space-y-1 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3.5 py-2.5">
           {decision.approval_history.map((a, i) => (
-            <li key={i} className="text-xs text-[var(--ink-muted)]">
-              <span className="mono text-[var(--ink)]">{a.actor ?? "—"}</span>{" "}
+            <li key={i} className="text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+              <span className="font-[590] text-[var(--ink)]">{a.actor ?? "—"}</span>{" "}
               {a.outcome} version {a.subject_version ?? "—"}
               {a.comment && <> — “{a.comment}”</>}
-              <span className="mono text-[var(--ink-faint)]"> · {formatDate(a.occurred_at, true)}</span>
+              <span className="text-[var(--ink-faint)]"> · {formatDate(a.occurred_at, true)}</span>
             </li>
           ))}
         </ul>
@@ -234,7 +238,7 @@ function Row({
               Reject
             </Button>
           </div>
-          <p className="text-xs italic text-[var(--ink-muted)]">
+          <p className="text-xs leading-relaxed text-[var(--ink-faint)]">
             Only the named approver can resolve this, and the approval binds to
             version {decision.subject.version ?? "—"} specifically.
           </p>
@@ -242,6 +246,30 @@ function Row({
       )}
 
       {!!error && <div className="mt-3"><ErrorNote error={error} /></div>}
+
+      {/*
+        The conversation that produced the decision, kept next to it. An
+        approver's reason was previously the only thing anyone could say here,
+        and only at the moment of approving.
+      */}
+      <div className="mt-3 border-t border-[var(--rule)] pt-3">
+        <button
+          onClick={() => setTalking((v) => !v)}
+          className="text-xs text-[var(--accent)] hover:underline"
+        >
+          {talking ? "Hide discussion" : "Discussion"}
+        </button>
+        {talking && (
+          <div className="mt-3">
+            <Discussion
+              circleId={circleId}
+              subject={{ type: "decision", id: decision.id }}
+              canComment
+              compact
+            />
+          </div>
+        )}
+      </div>
     </article>
   );
 }
@@ -290,7 +318,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
 
   return (
     <Panel title="Request a decision" className="lay-in">
-      <div className="space-y-3 px-4 py-4">
+      <div className="space-y-4 px-5 pb-5">
         <Field label="What must be decided">
           <input
             value={title}

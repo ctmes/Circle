@@ -181,6 +181,37 @@ class CircleService
     }
 
     /**
+     * Records how far along the mission is, as a whole percent.
+     *
+     * This is a statement by someone who runs the Circle, not a count of closed
+     * commitments — so it is audited like any other assertion.
+     */
+    public function setProgress(Circle $circle, User $actor, int $progress): Circle
+    {
+        $progress = max(0, min(100, $progress));
+        $previous = (int) $circle->progress;
+
+        if ($progress === $previous) {
+            return $circle;
+        }
+
+        $circle->forceFill([
+            'progress'        => $progress,
+            'progress_set_at' => now(),
+        ])->save();
+
+        $this->audit->record(
+            AuditEventType::CircleProgressSet, $circle, ActorType::User, $actor->id,
+            'circle', $circle->id, metadata: [
+                'from' => $previous,
+                'to'   => $progress,
+            ],
+        );
+
+        return $circle;
+    }
+
+    /**
      * Closes a Circle. External participants and agents lose access immediately;
      * internal members retain a read-only record (spec §16).
      */

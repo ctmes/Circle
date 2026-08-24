@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\AgentExecutionMode;
 use App\Enums\Permission;
 use App\Models\AgentBlueprint;
 use App\Services\Agent\StewardPrompt;
@@ -22,8 +23,17 @@ class AgentBlueprintSeeder extends Seeder
         AgentBlueprint::updateOrCreate(
             ['key' => AgentBlueprint::STEWARD],
             [
-                'name'    => 'Circle Steward',
-                'version' => '1.0.0',
+                'name'      => 'Circle Steward',
+                'version'   => '1.1.0',
+                'is_system' => true,
+                'status'    => 'active',
+                'provider'  => 'internal',
+
+                // The Steward drafts; it does not execute. Stated explicitly
+                // rather than left to the column default, because the default
+                // is read_only and that would silently strip the claim and
+                // decision drafting its whole purpose depends on.
+                'execution_mode' => AgentExecutionMode::Propose->value,
                 'mandate' => 'Maintains mission clarity. Reads approved Circle context, identifies gaps and '
                     . 'contradictions, prepares sourced summaries, and drafts decision requests for humans '
                     . 'to resolve. Strictly read-only: it cannot act outside the Circle and everything it '

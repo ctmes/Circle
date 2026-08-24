@@ -84,9 +84,23 @@ class CircleController extends Controller
             'purpose'    => ['sometimes', 'string', 'max:5000'],
             'expires_at' => ['sometimes', 'nullable', 'date'],
             'status'     => ['sometimes', 'string', 'in:draft,active,closing'],
+            'progress'   => ['sometimes', 'integer', 'between:0,100'],
         ]);
 
-        $circle->fill($data)->save();
+        // Progress is an audited assertion about the mission, so it goes
+        // through the service rather than being mass-assigned with the rest.
+        $progress = $data['progress'] ?? null;
+        unset($data['progress']);
+
+        if ($data !== []) {
+            $circle->fill($data)->save();
+        }
+
+        // A closed Circle never reaches here — the gate refuses every mutation
+        // on one, so the figure it closed at stays the figure of record.
+        if ($progress !== null) {
+            $circle = $this->circles->setProgress($circle, $request->user(), (int) $progress);
+        }
 
         return response()->json(['data' => new CircleView($circle->fresh()->load('owner'))]);
     }

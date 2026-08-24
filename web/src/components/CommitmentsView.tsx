@@ -21,10 +21,10 @@ export function CommitmentsView({ circleId }: { circleId: string }) {
         <Body
           circleId={circleId}
           canCreate={
-            circle.my_access?.permissions.includes("commitment.create") === true && !circle.is_closed
+            circle?.my_access?.permissions.includes("commitment.create") === true && !circle?.is_closed
           }
           canUpdate={
-            circle.my_access?.permissions.includes("commitment.update") === true && !circle.is_closed
+            circle?.my_access?.permissions.includes("commitment.update") === true && !circle?.is_closed
           }
         />
       )}
@@ -42,12 +42,21 @@ function Body({
   canUpdate: boolean;
 }) {
   const [composing, setComposing] = useState(false);
-  const { data, error, loading, reload } = useAsync<Commitment[]>(
+  const { data, error, loading, reload, mutate } = useAsync<Commitment[]>(
     () => api.get<{ data: Commitment[] }>(`/circles/${circleId}/commitments`).then((r) => r.data),
     [circleId],
   );
 
-  if (loading) return <Loading what="commitments" />;
+  /*
+    A status change returns the whole updated commitment, so the list is patched
+    in place instead of being re-read. The row moves between Outstanding and
+    Settled immediately and nothing else on the page so much as flickers.
+  */
+  function replace(updated: Commitment) {
+    mutate((current) => current.map((c) => (c.id === updated.id ? updated : c)));
+  }
+
+  if (loading) return <Panel><Loading what="commitments" /></Panel>;
   if (error) return <ErrorNote error={error} />;
 
   const all = data ?? [];
@@ -77,7 +86,7 @@ function Body({
       <Panel
         title="Outstanding"
         meta={
-          <span className="mono text-xs text-[var(--ink-faint)]">
+          <span className="text-xs text-[var(--ink-faint)]">
             {open.filter((c) => c.is_overdue).length} overdue
           </span>
         }
@@ -86,7 +95,7 @@ function Body({
           <Empty>Nobody owes anything right now.</Empty>
         ) : (
           open.map((c, i) => (
-            <Row key={c.id} commitment={c} canUpdate={canUpdate} onChanged={reload} index={i} />
+            <Row key={c.id} commitment={c} canUpdate={canUpdate} onUpdated={replace} index={i} />
           ))
         )}
       </Panel>
@@ -94,7 +103,7 @@ function Body({
       {closed.length > 0 && (
         <Panel title="Settled">
           {closed.map((c, i) => (
-            <Row key={c.id} commitment={c} canUpdate={false} onChanged={reload} index={i} />
+            <Row key={c.id} commitment={c} canUpdate={false} onUpdated={replace} index={i} />
           ))}
         </Panel>
       )}
@@ -105,12 +114,12 @@ function Body({
 function Row({
   commitment,
   canUpdate,
-  onChanged,
+  onUpdated,
   index,
 }: {
   commitment: Commitment;
   canUpdate: boolean;
-  onChanged: () => void;
+  onUpdated: (commitment: Commitment) => void;
   index: number;
 }) {
   const [error, setError] = useState<unknown>(null);
@@ -120,8 +129,11 @@ function Row({
     setBusy(true);
     setError(null);
     try {
-      await api.patch(`/commitments/${commitment.id}`, { status });
-      onChanged();
+      const { data } = await api.patch<{ data: Commitment }>(
+        `/commitments/${commitment.id}`,
+        { status },
+      );
+      onUpdated(data);
     } catch (e) {
       setError(e);
     } finally {
@@ -131,43 +143,49 @@ function Row({
 
   return (
     <article
-      className={`lay-in border-b border-[var(--rule)] px-4 py-3.5 last:border-0 ${
+      className={`lay-in border-t border-[var(--rule)] px-5 py-4 ${
         commitment.derived ? "derived-panel" : ""
       }`}
       style={{ animationDelay: `${index * 25}ms` }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[0.9375rem] leading-snug">{commitment.title}</p>
+          <p className="text-[1rem] leading-relaxed">{commitment.title}</p>
           {commitment.acceptance_condition && (
-            <p className="mt-1 text-xs text-[var(--ink-muted)]">
-              <span className="label">done when</span> {commitment.acceptance_condition}
+            <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+              <span className="font-[590] text-[var(--ink-faint)]">Done when</span>{" "}
+              {commitment.acceptance_condition}
             </p>
           )}
         </div>
         <StatusChip status={commitment.status} tone={COMMITMENT_TONE[commitment.status]} />
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         {commitment.derived && <DerivedStamp compact />}
-        <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+        <span className="text-xs text-[var(--ink-faint)]">
           {commitment.owner.name ?? "unassigned"}
         </span>
+        <span aria-hidden="true" className="text-[var(--rule-strong)]">·</span>
         <span
-          className={`mono text-[0.6875rem] ${
-            commitment.is_overdue ? "text-[var(--signal)]" : "text-[var(--ink-faint)]"
+          className={`text-xs ${
+            commitment.is_overdue
+              ? "font-[560] text-[var(--signal)]"
+              : "text-[var(--ink-faint)]"
           }`}
         >
-          {commitment.due_at ? `${formatDate(commitment.due_at)} · ${relativeDays(commitment.due_at)}` : "no deadline"}
+          {commitment.due_at
+            ? `${formatDate(commitment.due_at)} · ${relativeDays(commitment.due_at)}`
+            : "No deadline"}
         </span>
       </div>
 
       {commitment.updates.length > 0 && (
-        <ul className="mt-2 space-y-0.5 border-l-2 border-[var(--rule)] pl-3">
+        <ul className="mt-2 space-y-0.5 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3.5 py-2.5">
           {commitment.updates.map((u, i) => (
-            <li key={i} className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+            <li key={i} className="text-xs leading-relaxed text-[var(--ink-faint)]">
               {u.from ?? "—"} → {u.to}
-              {u.note && <span className="font-[var(--font-body)]"> — {u.note}</span>}
+              {u.note && <span> — {u.note}</span>}
               {" · "}
               {formatDate(u.at)}
             </li>
@@ -178,17 +196,17 @@ function Row({
       {canUpdate && (
         <div className="mt-3 flex flex-wrap gap-2">
           {commitment.status === "draft" && (
-            <Button variant="quiet" disabled={busy} onClick={() => move("open")}>
+            <Button variant="primary" disabled={busy} onClick={() => move("open")}>
               Confirm
             </Button>
           )}
-          <Button variant="quiet" disabled={busy} onClick={() => move("blocked")}>
+          <Button disabled={busy} onClick={() => move("blocked")}>
             Blocked
           </Button>
-          <Button variant="quiet" disabled={busy} onClick={() => move("done")}>
+          <Button disabled={busy} onClick={() => move("done")}>
             Done
           </Button>
-          <Button variant="quiet" disabled={busy} onClick={() => move("cancelled")}>
+          <Button variant="danger" disabled={busy} onClick={() => move("cancelled")}>
             Cancel
           </Button>
         </div>
@@ -232,7 +250,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
 
   return (
     <Panel title="New commitment" className="lay-in">
-      <div className="space-y-3 px-4 py-4">
+      <div className="space-y-4 px-5 pb-5">
         <Field label="What is being committed to">
           <input
             value={title}

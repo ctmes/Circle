@@ -18,6 +18,25 @@ the pilot scenario: **Rail Access Package — Bid Review**.
 Requires Docker. Everything else — PHP 8.4, Postgres 16, Redis, MinIO, ffmpeg,
 poppler, tesseract, Node — is inside the containers.
 
+One command does the whole thing — starts Docker if it isn't running, installs
+dependencies, migrates, seeds, provisions demo accounts, waits for the API and
+the web server to actually answer, then opens the browser:
+
+```powershell
+.\start.ps1        # Windows
+```
+
+```bash
+./start.sh         # macOS / Linux
+```
+
+Both are idempotent, so re-running them against a live stack is safe. Useful
+flags: `-Fresh` / `--fresh` (wipe the volumes and start clean), `-Rebuild` /
+`--rebuild`, `-Demo` / `--demo` (run `demo.py` afterwards), `-NoBrowser` /
+`--no-browser`.
+
+The steps by hand, if you'd rather:
+
 ```bash
 docker compose up -d                                   # brings up the whole stack
 docker compose run --rm api php artisan migrate --seed # schema + agent blueprint

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { api, clearToken, formatDate, relativeDays, type Circle } from "../lib/api";
 import {
@@ -6,10 +7,14 @@ import {
   ErrorNote,
   Field,
   Loading,
+  Meta,
   Panel,
   inputClass,
   useAsync,
 } from "./ui";
+import { ThemeToggle } from "./ThemeToggle";
+import { Ring, progressTone } from "./CircleMeter";
+import { Wordmark } from "./Wordmark";
 
 /**
  * The Circle index.
@@ -30,37 +35,34 @@ export function CircleListView() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b-2 border-[var(--ink)] bg-[var(--paper-raised)]">
-        <div className="mx-auto flex max-w-[1100px] items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-2.5">
-            <svg width="17" height="17" viewBox="0 0 32 32" aria-hidden="true">
-              <circle cx="16" cy="16" r="12" fill="none" stroke="currentColor" strokeWidth="2.5" />
-              <circle cx="16" cy="16" r="4" fill="var(--signal)" />
-            </svg>
-            <span className="display text-sm font-700 uppercase tracking-[0.22em]">Circle</span>
+      <header className="blurbar sticky top-0 z-20 border-b border-[var(--rule)]">
+        <div className="mx-auto flex max-w-[900px] items-center justify-between px-6 py-3">
+          <Wordmark size={17} />
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={() => {
+                clearToken();
+                location.href = "/login";
+              }}
+              className="rounded-[var(--r-control)] px-2.5 py-1.5 text-[0.8125rem] text-[var(--ink-muted)] transition-colors hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)]"
+            >
+              Sign out
+            </button>
           </div>
-          <button
-            onClick={() => {
-              clearToken();
-              location.href = "/login";
-            }}
-            className="label hover:text-[var(--ink)]"
-          >
-            Sign out
-          </button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1100px] px-6 py-8">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <main className="mx-auto max-w-[900px] px-6 py-9">
+        <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="display text-2xl font-700">Your Circles</h1>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)]">
+            <h1 className="display text-[2rem] font-[680] leading-tight">Your Circles</h1>
+            <p className="mt-2 max-w-xl text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
               Each Circle holds only what one mission needs, and ends when the
               mission does.
             </p>
           </div>
-          <Button variant={creating ? "quiet" : "primary"} onClick={() => setCreating((v) => !v)}>
+          <Button variant={creating ? "default" : "primary"} onClick={() => setCreating((v) => !v)}>
             {creating ? "Cancel" : "Open a Circle"}
           </Button>
         </div>
@@ -73,34 +75,40 @@ export function CircleListView() {
           </div>
         )}
 
-        {loading && <Loading what="Circles" />}
+        {loading && (
+          <Panel>
+            <Loading what="Circles" />
+          </Panel>
+        )}
         {!!error && <ErrorNote error={error} />}
 
         {data && (
-          <div className="space-y-6">
-            <Panel title="Active">
+          <div className="space-y-8">
+            <Section title="Active">
               {active.length === 0 ? (
-                <Empty>
-                  You are not in any open Circle. You will appear here once
-                  someone invites you to one.
-                </Empty>
+                <Panel>
+                  <Empty>
+                    You are not in any open Circle. You will appear here once
+                    someone invites you to one.
+                  </Empty>
+                </Panel>
               ) : (
-                <ul>
+                <ul className="space-y-3">
                   {active.map((c, i) => (
-                    <CircleRow key={c.id} circle={c} index={i} />
+                    <CircleCard key={c.id} circle={c} index={i} />
                   ))}
                 </ul>
               )}
-            </Panel>
+            </Section>
 
             {closed.length > 0 && (
-              <Panel title="Closed">
-                <ul>
+              <Section title="Closed" meta={`${closed.length}`}>
+                <ul className="space-y-3">
                   {closed.map((c, i) => (
-                    <CircleRow key={c.id} circle={c} index={i} />
+                    <CircleCard key={c.id} circle={c} index={i} />
                   ))}
                 </ul>
-              </Panel>
+              </Section>
             )}
           </div>
         )}
@@ -109,41 +117,76 @@ export function CircleListView() {
   );
 }
 
-function CircleRow({ circle, index }: { circle: Circle; index: number }) {
+/**
+ * A group heading that sits on the page rather than inside a card — so each
+ * Circle can be its own tappable card instead of a row in a table.
+ */
+function Section({
+  title,
+  meta,
+  children,
+}: {
+  title: string;
+  meta?: string;
+  children: ReactNode;
+}) {
   return (
-    <li className="lay-in" style={{ animationDelay: `${index * 30}ms` }}>
+    <section>
+      <div className="mb-3 flex items-baseline justify-between px-1">
+        <h2 className="display text-[0.9375rem] font-[600] text-[var(--ink)]">{title}</h2>
+        {meta && <Meta>{meta}</Meta>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function CircleCard({ circle, index }: { circle: Circle; index: number }) {
+  return (
+    <li className="lay-in" style={{ animationDelay: `${index * 40}ms` }}>
       <a
         href={`/circles/${circle.id}`}
-        className="block border-b border-[var(--rule)] px-4 py-3.5 no-underline transition-colors last:border-0 hover:bg-[var(--paper-sunk)]"
+        className="card block px-5 py-4 no-underline transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-ring),var(--shadow-float)]"
       >
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h3 className="display text-base font-600 text-[var(--ink)]">{circle.name}</h3>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          {/* The ring carries how far along the mission is; the figure is in
+              the footer, because a ring alone is a shape, not a number. */}
+          <h3 className="display flex items-center gap-2.5 text-[1.0625rem] font-[600] text-[var(--ink)]">
+            <Ring progress={circle.progress} tone={progressTone(circle)} size={20} />
+            {circle.name}
+          </h3>
           <span
-            className={`mono text-xs ${
+            className={`text-[0.8125rem] ${
               circle.is_closed
                 ? "text-[var(--ink-faint)]"
                 : circle.is_expired
-                  ? "text-[var(--signal)]"
+                  ? "font-[560] text-[var(--signal)]"
                   : "text-[var(--ink-muted)]"
             }`}
           >
             {circle.is_closed
-              ? `closed ${formatDate(circle.closed_at)}`
+              ? `Closed ${formatDate(circle.closed_at)}`
               : relativeDays(circle.expires_at)}
           </span>
         </div>
 
-        <p className="mt-1 max-w-3xl text-sm leading-snug text-[var(--ink-muted)]">
+        <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--ink-muted)]">
           {circle.purpose}
         </p>
 
-        <p className="mt-1.5 mono text-[0.6875rem] text-[var(--ink-faint)]">
-          your role: {circle.my_role ?? "—"}
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ink-faint)]">
+          <span className="tabular font-[560] text-[var(--ink-muted)]">
+            {circle.progress}%
+          </span>
+          <span aria-hidden="true">·</span>
+          <span className="capitalize">{circle.my_role ?? "—"}</span>
           {circle.my_access?.is_external && (
-            <span className="text-[var(--signal)]"> · external</span>
+            <span className="rounded-[var(--r-chip)] bg-[var(--signal-soft)] px-1.5 py-0.5 font-[560] text-[var(--signal)]">
+              External
+            </span>
           )}
-          {" · owner: "}
-          {circle.owner.name ?? "—"}
+          <span aria-hidden="true">·</span>
+          <span>Owner {circle.owner.name ?? "—"}</span>
         </p>
       </a>
     </li>
@@ -188,7 +231,7 @@ function Creator() {
 
   return (
     <Panel title="Open a Circle" className="lay-in">
-      <div className="space-y-3 px-4 py-4">
+      <div className="space-y-4 px-5 pb-5">
         <Field
           label="Mission"
           hint="Name the outcome, not the team. “Rail Access Package — Bid Review”, not “Ops”."
@@ -209,19 +252,19 @@ function Creator() {
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
             rows={3}
-            className={inputClass}
+            className={`${inputClass} resize-y leading-relaxed`}
             placeholder="Assemble and review the bid package for the Bay Junction rail access matting works, and decide go/no-go."
           />
         </Field>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Organisation">
             <select
               value={organisationId}
               onChange={(e) => setOrganisationId(e.target.value)}
               className={inputClass}
             >
-              <option value="">choose…</option>
+              <option value="">Choose…</option>
               {(orgs ?? []).map((o) => (
                 <option key={o.id} value={o.id}>{o.name}</option>
               ))}

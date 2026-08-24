@@ -32,9 +32,9 @@ export function ExportView({ circleId }: { circleId: string }) {
       {(circle) => (
         <Body
           circleId={circleId}
-          isClosed={circle.is_closed}
-          canExport={circle.my_access?.permissions.includes("export.create") === true}
-          canClose={circle.my_access?.permissions.includes("circle.close") === true}
+          isClosed={circle?.is_closed === true}
+          canExport={circle?.my_access?.permissions.includes("export.create") === true}
+          canClose={circle?.my_access?.permissions.includes("circle.close") === true}
         />
       )}
     </CircleFrame>
@@ -83,9 +83,9 @@ function Body({
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="max-w-3xl space-y-5">
       <Panel title="Mission packet">
-        <div className="space-y-3 px-4 py-4">
+        <div className="space-y-4 px-5 pb-5">
           <p className="text-sm leading-snug">
             The packet is the Circle's record in one archive: mission metadata,
             every participant and when their access ended, an evidence manifest
@@ -108,28 +108,33 @@ function Body({
               {busy ? "Assembling…" : "Build packet"}
             </Button>
           ) : (
-            <p className="text-xs italic text-[var(--ink-muted)]">
+            <p className="text-xs text-[var(--ink-muted)]">
               Your role does not permit exporting this Circle.
             </p>
           )}
         </div>
 
         {packet && (
-          <div className="border-t border-[var(--rule)] px-4 py-4">
-            <div className="flex flex-wrap items-baseline gap-3">
+          <div className="border-t border-[var(--rule)] px-5 py-5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span
-                className={`stamp ${
-                  packet.audit_chain_valid ? "text-[var(--settled)]" : "text-[var(--signal)]"
-                }`}
+                className="inline-flex items-center gap-2 rounded-[var(--r-chip)] px-3 py-1.5 text-[0.875rem] font-[600]"
+                style={{
+                  color: packet.audit_chain_valid ? "var(--settled)" : "var(--signal)",
+                  background: packet.audit_chain_valid
+                    ? "var(--settled-soft)"
+                    : "var(--signal-soft)",
+                }}
               >
-                {packet.audit_chain_valid ? "chain verified" : "chain broken"}
+                <span className="inline-block size-2 rounded-full bg-current" aria-hidden="true" />
+                {packet.audit_chain_valid ? "Chain verified" : "Chain broken"}
               </span>
-              <span className="mono text-xs text-[var(--ink-muted)]">
+              <span className="text-[0.8125rem] text-[var(--ink-muted)]">
                 {formatBytes(packet.byte_size)} · {formatDate(packet.completed_at, true)}
               </span>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-4">
               <Fact label="Packet SHA-256">
                 {packet.sha256 ? <Copyable value={packet.sha256} truncate={28} /> : "—"}
               </Fact>
@@ -139,34 +144,36 @@ function Body({
             </div>
 
             {packet.manifest?.files && (
-              <table className="mt-3 w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--rule)]">
-                    <th className="label py-1 text-left font-600">Document</th>
-                    <th className="label py-1 text-right font-600">Size</th>
-                    <th className="label py-1 text-left font-600">Digest</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(packet.manifest.files).map(([name, meta]) => (
-                    <tr key={name} className="border-b border-[var(--rule)] last:border-0">
-                      <td className="py-1 mono text-xs">{name}</td>
-                      <td className="py-1 text-right mono text-xs text-[var(--ink-faint)]">
-                        {formatBytes(meta.bytes)}
-                      </td>
-                      <td className="py-1">
-                        <Copyable value={meta.sha256} truncate={14} />
-                      </td>
+              <div className="mt-4 overflow-x-auto rounded-[var(--r-control)] bg-[var(--paper-inset)]">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--rule)]">
+                      <th className="label px-3 py-2 text-left font-[600]">Document</th>
+                      <th className="label px-3 py-2 text-right font-[600]">Size</th>
+                      <th className="label px-3 py-2 text-left font-[600]">Digest</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {Object.entries(packet.manifest.files).map(([name, meta]) => (
+                      <tr key={name} className="border-b border-[var(--rule)] last:border-0">
+                        <td className="mono px-3 py-1.5 text-xs">{name}</td>
+                        <td className="px-3 py-1.5 text-right text-xs text-[var(--ink-faint)] tabular">
+                          {formatBytes(meta.bytes)}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <Copyable value={meta.sha256} truncate={14} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {packet.download_url && (
               <a
                 href={packet.download_url}
-                className="display mt-4 inline-block border border-[var(--ink)] bg-[var(--ink)] px-3 py-1.5 text-xs font-600 uppercase tracking-[0.1em] text-[var(--paper)] no-underline"
+                className="mt-4 inline-flex items-center rounded-[var(--r-control)] bg-[var(--accent)] px-3.5 py-2 text-[0.8125rem] font-[590] text-white no-underline shadow-[0_1px_2px_rgb(0_0_0/0.12)] transition-colors hover:bg-[var(--accent-hover)]"
               >
                 Download packet
               </a>
@@ -177,17 +184,24 @@ function Body({
 
       {!isClosed && canClose && (
         <Panel title="Close this Circle" tone="signal">
-          <div className="space-y-3 px-4 py-4">
+          <div className="space-y-4 px-5 pb-5">
             <p className="text-sm leading-snug">
               Closing ends the mission. It takes effect immediately and cannot be
               undone from here.
             </p>
 
-            <ul className="space-y-1 text-sm text-[var(--ink-muted)]">
-              <li>— External collaborators lose access to this Circle entirely.</li>
-              <li>— The Circle Steward is disabled and can no longer read anything.</li>
-              <li>— No further evidence, claims, decisions or commitments can be added.</li>
-              <li>— Internal members keep a read-only record, and can still export it.</li>
+            <ul className="space-y-1.5 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-4 py-3 text-sm leading-relaxed text-[var(--ink-muted)]">
+              {[
+                "External collaborators lose access to this Circle entirely.",
+                "The Circle Steward is disabled and can no longer read anything.",
+                "No further evidence, claims, decisions or commitments can be added.",
+                "Internal members keep a read-only record, and can still export it.",
+              ].map((line) => (
+                <li key={line} className="flex gap-2.5">
+                  <span className="text-[var(--signal)]" aria-hidden="true">•</span>
+                  {line}
+                </li>
+              ))}
             </ul>
 
             {!confirmClose ? (
@@ -202,7 +216,7 @@ function Body({
                 <Button variant="quiet" onClick={() => setConfirmClose(false)}>
                   Keep it open
                 </Button>
-                <span className="text-xs italic text-[var(--ink-muted)]">
+                <span className="text-xs text-[var(--ink-muted)]">
                   Consider building the packet first.
                 </span>
               </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, formatDate, type AgentSummaryRow, type Member } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
+import { StatusChip } from "./Trust";
 import {
   Button,
   Copyable,
@@ -35,8 +36,8 @@ export function PeopleView({ circleId }: { circleId: string }) {
         <Body
           circleId={circleId}
           canManage={
-            circle.my_access?.permissions.includes("circle.manage_members") === true &&
-            !circle.is_closed
+            circle?.my_access?.permissions.includes("circle.manage_members") === true &&
+            !circle?.is_closed
           }
         />
       )}
@@ -52,7 +53,7 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
   const [actionError, setActionError] = useState<unknown>(null);
   const [issued, setIssued] = useState<{ email: string; token: string } | null>(null);
 
-  if (loading) return <Loading what="participants" />;
+  if (loading) return <Panel><Loading what="participants" /></Panel>;
   if (error) return <ErrorNote error={error} />;
   if (!data) return null;
 
@@ -82,63 +83,78 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
 
       <Panel
         title="Participants"
-        meta={<span className="mono text-xs text-[var(--ink-faint)]">{data.members.length}</span>}
+        meta={<span className="text-xs text-[var(--ink-faint)]">{data.members.length}</span>}
       >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--rule)]">
-                {["Person", "Role", "Access", "Joined", ""].map((h) => (
-                  <th key={h} className="label px-4 py-2 text-left font-600">{h}</th>
+              <tr className="border-y border-[var(--rule)] bg-[var(--paper-inset)]">
+                {["Person", "Role", "Access", "Expires", ""].map((h) => (
+                  <th key={h} className="label px-5 py-2 text-left font-[600]">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {data.members.map((m) => (
-                <tr key={m.membership_id} className="border-b border-[var(--rule)] last:border-0">
-                  <td className="px-4 py-2.5">
-                    <span className="display block font-600">{m.user.name}</span>
-                    <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">{m.user.email}</span>
+                <tr key={m.membership_id} className="border-t border-[var(--rule)]">
+                  <td className="px-5 py-3">
+                    <span className="display block font-[600]">{m.user.name}</span>
+                    <span className="text-xs text-[var(--ink-faint)]">{m.user.email}</span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-5 py-3">
                     {canManage && m.is_active ? (
                       <select
                         value={m.circle_role}
                         onChange={(e) => changeRole(m.membership_id, e.target.value)}
-                        className={`${filterClass} py-1 mono !text-xs`}
+                        className={`${filterClass} capitalize`}
                       >
                         {["owner", "approver", "reviewer", "contributor", "viewer"].map((r) => (
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
                     ) : (
-                      <span className="mono text-xs">{m.circle_role}</span>
+                      <span className="text-[0.8125rem] capitalize">{m.circle_role}</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`mono text-xs ${m.is_active ? "" : "text-[var(--signal)]"}`}>
-                      {m.is_active ? "active" : m.revoked_at ? "revoked" : m.invite_status}
-                    </span>
-                    {m.is_external && (
-                      <span className="ml-2 mono text-[0.6875rem] text-[var(--signal)]" title="External collaborators cannot download or share by default, and lose access entirely when the Circle closes.">
-                        external
-                      </span>
-                    )}
-                    <details className="mt-0.5">
-                      <summary className="label cursor-pointer">
+                  <td className="px-5 py-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <StatusChip
+                        status={m.is_active ? "active" : m.revoked_at ? "revoked" : m.invite_status}
+                        tone={m.is_active ? "settled" : "signal"}
+                      />
+                      {m.is_external && (
+                        <StatusChip status="external" tone="signal" />
+                      )}
+                    </div>
+
+                    {/*
+                      The permission list is the honest answer to "what can this
+                      person actually do", but it is twelve lines long — so it
+                      collapses, and the count stays visible either way.
+                    */}
+                    <details className="group mt-1.5">
+                      <summary className="label inline-flex cursor-pointer list-none items-center gap-1 rounded-md py-0.5 hover:text-[var(--ink)] [&::-webkit-details-marker]:hidden">
+                        <span
+                          className="transition-transform duration-200 group-open:rotate-90"
+                          aria-hidden="true"
+                        >
+                          ›
+                        </span>
                         {m.permissions.length} permissions
                       </summary>
-                      <ul className="mt-1 space-y-0.5">
+                      <ul className="mt-1.5 space-y-1 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3 py-2">
                         {m.permissions.map((p) => (
-                          <li key={p} className="mono text-[0.625rem] text-[var(--ink-faint)]">{p}</li>
+                          <li key={p} className="mono text-[0.6875rem] text-[var(--ink-muted)]">
+                            {p}
+                          </li>
                         ))}
                       </ul>
                     </details>
                   </td>
-                  <td className="px-4 py-2.5 mono text-xs text-[var(--ink-faint)]">
-                    {m.expires_at ? `until ${formatDate(m.expires_at)}` : "no expiry"}
+                  <td className="px-5 py-3 text-[0.8125rem] text-[var(--ink-faint)]">
+                    {m.expires_at ? formatDate(m.expires_at) : "No expiry"}
                   </td>
-                  <td className="px-4 py-2.5 text-right">
+                  <td className="px-5 py-3 text-right">
                     {canManage && m.is_active && (
                       <Button variant="quiet" onClick={() => revoke(m.membership_id)}>
                         Revoke
@@ -163,16 +179,16 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
       )}
 
       {issued && (
-        <Panel title="Invitation issued" tone="signal">
-          <div className="px-4 py-3">
+        <Panel title="Invitation issued">
+          <div className="px-5 py-3.5">
             <p className="text-sm">
-              Send this link to <span className="mono text-xs">{issued.email}</span>. It can only
+              Send this link to <span className="font-[560]">{issued.email}</span>. It can only
               be redeemed by that address, and it expires in 14 days.
             </p>
-            <p className="mt-2 break-all mono text-xs">
+            <p className="mt-2 break-all">
               <Copyable value={`${location.origin}/invitations/${issued.token}`} />
             </p>
-            <p className="mt-2 text-xs italic text-[var(--ink-muted)]">
+            <p className="mt-2 text-xs text-[var(--ink-muted)]">
               Shown once. The MVP has no mailer wired up, so deliver it yourself.
             </p>
           </div>
@@ -183,9 +199,9 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
         <Panel title="Invited, not yet accepted">
           <ul>
             {data.pending_invitations.map((i) => (
-              <li key={i.id} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--rule)] px-4 py-2.5 last:border-0">
-                <span className="mono text-xs">{i.email}</span>
-                <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+              <li key={i.id} className="flex flex-wrap items-baseline justify-between gap-3 border-t border-[var(--rule)] px-5 py-3">
+                <span className="text-[0.875rem]">{i.email}</span>
+                <span className="text-xs text-[var(--ink-faint)]">
                   {i.circle_role}{i.is_external && " · external"} · expires {formatDate(i.expires_at)}
                 </span>
               </li>
@@ -199,37 +215,32 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
           key={agent.agent_instance_id}
           title="Agent"
           tone="derived"
-          meta={<span className="mono text-xs text-[var(--ink-faint)]">{agent.status}</span>}
+          meta={<span className="text-xs text-[var(--ink-faint)]">{agent.status}</span>}
         >
-          <div className="hatch h-1 opacity-40" />
-          <div className="px-4 py-4">
-            <h3 className="display text-base font-700">{agent.name}</h3>
-            <p className="mono text-[0.6875rem] text-[var(--ink-faint)]">
+          <div className="px-5 pb-5">
+            <h3 className="display text-[1.0625rem] font-[620]">{agent.name}</h3>
+            <p className="mt-0.5 text-xs text-[var(--ink-faint)]">
               {agent.blueprint} · v{agent.version}
             </p>
-            <p className="mt-2 max-w-3xl text-sm leading-snug text-[var(--ink-muted)]">
+            <p className="mt-2.5 max-w-3xl text-sm leading-relaxed text-[var(--ink-muted)]">
               {agent.mandate}
             </p>
 
-            <div className="mt-4 grid gap-5 md:grid-cols-2">
-              <div>
-                <p className="label">It may</p>
-                <ul className="mt-1 space-y-0.5">
-                  {agent.allowed_actions.map((a) => (
-                    <li key={a} className="mono text-xs text-[var(--ink)]">{a}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <p className="label !text-[var(--signal)]">It may not</p>
-                <ul className="mt-1 space-y-0.5">
-                  {agent.prohibited_actions.map((a) => (
-                    <li key={a} className="mono text-xs text-[var(--ink-muted)]">
-                      {a.replace(/_/g, " ")}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {/*
+              May and may-not sit side by side at equal weight. Showing only the
+              permissions would answer half the question people actually ask.
+            */}
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Capability
+                title="It may"
+                items={agent.allowed_actions}
+                tone="settled"
+              />
+              <Capability
+                title="It may not"
+                items={agent.prohibited_actions.map((a) => a.replace(/_/g, " "))}
+                tone="signal"
+              />
             </div>
 
             <div className="mt-4">
@@ -238,19 +249,20 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
                 {agent.can_access.length === 1 ? "" : "s"})
               </p>
               {agent.can_access.length === 0 ? (
-                <p className="mt-1 text-sm italic text-[var(--ink-muted)]">
+                <p className="mt-1.5 text-sm text-[var(--ink-muted)]">
                   Nothing. No evidence in this Circle is marked agent-readable.
                 </p>
               ) : (
-                <ul className="mt-1 space-y-0.5">
+                <ul className="mt-1.5 space-y-1">
                   {agent.can_access.map((r) => (
-                    <li key={r.evidence_item_id} className="text-sm">
-                      — {r.name}
+                    <li key={r.evidence_item_id} className="flex gap-2 text-sm">
+                      <span className="text-[var(--derived)]" aria-hidden="true">•</span>
+                      {r.name}
                     </li>
                   ))}
                 </ul>
               )}
-              <p className="mt-2 text-xs italic leading-snug text-[var(--ink-muted)]">
+              <p className="mt-3 text-xs leading-relaxed text-[var(--ink-faint)]">
                 Access is granted per item, never inherited. Everything the agent
                 produces is a draft that a person must confirm.
               </p>
@@ -294,7 +306,7 @@ function InviteForm({
 
   return (
     <Panel title="Invite someone">
-      <div className="space-y-3 px-4 py-4">
+      <div className="space-y-4 px-5 pb-5">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto]">
           <Field label="Email">
             <input
@@ -306,13 +318,17 @@ function InviteForm({
             />
           </Field>
           <Field label="Role">
-            <select value={role} onChange={(e) => setRole(e.target.value)} className={inputClass}>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className={`${inputClass} capitalize`}
+            >
               {["viewer", "contributor", "reviewer", "approver", "owner"].map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
           </Field>
-          <Field label="Outside JWA?">
+          <Field label="Outside the organisation?">
             <label className="flex h-[34px] items-center gap-2">
               <input
                 type="checkbox"
@@ -320,12 +336,12 @@ function InviteForm({
                 onChange={(e) => setExternal(e.target.checked)}
                 className="accent-[var(--signal)]"
               />
-              <span className="mono text-xs">external</span>
+              <span className="text-sm">External</span>
             </label>
           </Field>
         </div>
 
-        <p className="text-xs italic leading-snug text-[var(--ink-muted)]">
+        <p className="text-xs leading-snug text-[var(--ink-muted)]">
           External collaborators see only this Circle. Download and sharing are
           denied to them by default and must be granted per item, and closing the
           Circle revokes their access entirely.
@@ -338,5 +354,37 @@ function InviteForm({
         </Button>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * One half of the agent's capability pair. Rendered as a tinted block rather
+ * than a bare list so that "may" and "may not" are told apart before either
+ * one is read.
+ */
+function Capability({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  tone: "settled" | "signal";
+}) {
+  const colour = tone === "settled" ? "var(--settled)" : "var(--signal)";
+
+  return (
+    <div className="rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3.5 py-3">
+      <p className="label" style={{ color: colour }}>
+        {title}
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {items.map((a) => (
+          <li key={a} className="text-[0.8125rem] leading-snug text-[var(--ink-muted)]">
+            {a}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -24,18 +24,25 @@ export function OrganisationView({ slug }: { slug: string }) {
     [slug],
   );
 
-  if (loading) return <Loading what="organisation" />;
+  if (loading)
+    return (
+      <main className="mx-auto max-w-[900px] px-6 py-10">
+        <Panel>
+          <Loading what="organisation" />
+        </Panel>
+      </main>
+    );
 
   return (
-    <main className="mx-auto max-w-[1100px] px-6 py-10">
+    <main className="mx-auto max-w-[900px] px-6 py-10">
       {!!error && <ErrorNote error={error} />}
 
       {data && (
         <>
-          <header className="mb-6">
-            <p className="label">Organisation</p>
-            <h1 className="display text-2xl font-700">{data.name}</h1>
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          <header className="mb-7">
+            <p className="eyebrow">Organisation</p>
+            <h1 className="display mt-1.5 text-[2rem] font-[680] leading-tight">{data.name}</h1>
+            <p className="mt-2 max-w-xl text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
               Circles you belong to. Membership of {data.name} does not, by
               itself, grant access to any of them.
             </p>
@@ -50,15 +57,15 @@ export function OrganisationView({ slug }: { slug: string }) {
                   <li key={c.id} className="lay-in" style={{ animationDelay: `${i * 30}ms` }}>
                     <a
                       href={`/circles/${c.id}`}
-                      className="block border-b border-[var(--rule)] px-4 py-3 no-underline last:border-0 hover:bg-[var(--paper-sunk)]"
+                      className="block border-t border-[var(--rule)] px-5 py-4 no-underline transition-colors hover:bg-[var(--paper-sunk)]"
                     >
                       <div className="flex flex-wrap items-baseline justify-between gap-3">
-                        <span className="display text-base font-600 text-[var(--ink)]">{c.name}</span>
-                        <span className="mono text-xs text-[var(--ink-faint)]">
-                          {c.closed_at ? `closed ${formatDate(c.closed_at)}` : relativeDays(c.expires_at)}
+                        <span className="display text-[1.0625rem] font-[600] text-[var(--ink)]">{c.name}</span>
+                        <span className="text-xs text-[var(--ink-faint)]">
+                          {c.closed_at ? `Closed ${formatDate(c.closed_at)}` : relativeDays(c.expires_at)}
                         </span>
                       </div>
-                      <p className="mt-1 text-sm text-[var(--ink-muted)]">{c.purpose}</p>
+                      <p className="mt-2 max-w-xl text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">{c.purpose}</p>
                     </a>
                   </li>
                 ))}

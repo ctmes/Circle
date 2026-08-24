@@ -7,6 +7,7 @@ import {
   type EvidenceItem,
 } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
+import { Discussion } from "./Thread";
 import { DerivedStamp, StatusChip } from "./Trust";
 import {
   Button,
@@ -33,10 +34,10 @@ export function ClaimsView({ circleId }: { circleId: string }) {
         <Body
           circleId={circleId}
           canCreate={
-            circle.my_access?.permissions.includes("claim.create") === true && !circle.is_closed
+            circle?.my_access?.permissions.includes("claim.create") === true && !circle?.is_closed
           }
           canReview={
-            circle.my_access?.permissions.includes("claim.review") === true && !circle.is_closed
+            circle?.my_access?.permissions.includes("claim.review") === true && !circle?.is_closed
           }
         />
       )}
@@ -59,7 +60,7 @@ function Body({
     [circleId],
   );
 
-  if (loading) return <Loading what="claims" />;
+  if (loading) return <Panel><Loading what="claims" /></Panel>;
   if (error) return <ErrorNote error={error} />;
 
   const claims = data ?? [];
@@ -89,7 +90,7 @@ function Body({
       <Panel
         title="Claims on the record"
         meta={
-          <span className="mono text-xs text-[var(--ink-faint)]">
+          <span className="text-xs text-[var(--ink-faint)]">
             {byHuman.length} attested · {byAgent.length} derived
           </span>
         }
@@ -133,6 +134,7 @@ function ClaimRow({
 }) {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [talking, setTalking] = useState(false);
 
   async function review(outcome: string) {
     setBusy(true);
@@ -150,64 +152,60 @@ function ClaimRow({
   return (
     <li
       id={claim.id}
-      className={`lay-in border-b border-[var(--rule)] last:border-0 ${
+      className={`lay-in border-t border-[var(--rule)] ${
         claim.derived ? "derived-panel" : ""
       }`}
       style={{ animationDelay: `${index * 25}ms` }}
     >
-      <div className="px-4 py-3.5">
+      <div className="px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="max-w-3xl flex-1 text-[0.9375rem] leading-snug">{claim.statement}</p>
+          <p className="max-w-3xl flex-1 text-[1rem] leading-relaxed">{claim.statement}</p>
           <div className="flex shrink-0 items-center gap-2">
             <StatusChip status={claim.status} />
           </div>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-[var(--ink-faint)]">
           {claim.derived && <DerivedStamp compact />}
-          <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
-            {claim.claim_type.replace(/_/g, " ")}
+          <span className="capitalize">{claim.claim_type.replace(/_/g, " ")}</span>
+          <span aria-hidden="true">·</span>
+          <span>
+            {claim.derived ? "Circle Steward" : (claim.author as any)?.name ?? "unknown"}
           </span>
-          <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
-            {claim.derived
-              ? "Circle Steward"
-              : (claim.author as any)?.name ?? "unknown"}
-          </span>
-          <span className="mono text-[0.6875rem] text-[var(--ink-faint)]">
-            {formatDate(claim.created_at)}
-          </span>
+          <span aria-hidden="true">·</span>
+          <span>{formatDate(claim.created_at)}</span>
           {claim.confidence !== null && (
             <span
-              className="mono text-[0.6875rem] text-[var(--ink-muted)]"
+              className="rounded-[var(--r-chip)] bg-[var(--paper-sunk)] px-2 py-0.5 text-[var(--ink-muted)]"
               title="How well the author says the evidence supports this — not a measure of correctness."
             >
-              confidence {Math.round(claim.confidence * 100)}%
+              {Math.round(claim.confidence * 100)}% confidence
             </span>
           )}
         </div>
 
         {/* Citations are the load-bearing part: a claim without them is opinion. */}
-        <ul className="mt-3 space-y-1">
+        <ul className="mt-3 space-y-1.5 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3.5 py-2.5">
           {claim.citations.length === 0 ? (
-            <li className="text-xs italic text-[var(--signal)]">
+            <li className="text-[0.8125rem] font-[560] text-[var(--signal)]">
               No evidence cited.
             </li>
           ) : (
             claim.citations.map((c) => (
               <li key={c.id} className="flex flex-wrap items-baseline gap-2">
-                <span className="label !text-[0.5625rem]">cites</span>
+                <span className="label">cites</span>
                 <a
                   href={`/circles/${circleId}/context`}
-                  className="mono text-xs text-[var(--ink)] underline decoration-dotted underline-offset-2"
+                  className="text-[0.8125rem] font-[560] text-[var(--accent)] no-underline hover:underline"
                 >
                   {c.evidence?.name ?? c.evidence?.filename ?? "evidence"}
                 </a>
-                <span className="mono text-[0.6875rem] text-[var(--ink-muted)]">
+                <span className="text-xs text-[var(--ink-muted)]">
                   v{c.evidence?.version_number} · {describeLocator(c.citation_type, c.locator)}
                 </span>
                 {c.evidence?.integrity_status === "superseded" && (
                   <span
-                    className="mono text-[0.6875rem] text-[var(--ink-faint)]"
+                    className="text-xs text-[var(--ink-faint)]"
                     title="A newer version of the cited evidence exists. This citation still resolves to the version that was cited."
                   >
                     (superseded version)
@@ -219,12 +217,13 @@ function ClaimRow({
         </ul>
 
         {claim.reviews.length > 0 && (
-          <ul className="mt-3 space-y-1 border-l-2 border-[var(--rule)] pl-3">
+          <ul className="mt-2.5 space-y-1">
             {claim.reviews.map((r, i) => (
-              <li key={i} className="text-xs text-[var(--ink-muted)]">
-                <span className="mono">{r.reviewer ?? "—"}</span> {r.outcome.replace(/_/g, " ")}
+              <li key={i} className="text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+                <span className="font-[590] text-[var(--ink)]">{r.reviewer ?? "—"}</span>{" "}
+                {r.outcome.replace(/_/g, " ")}
                 {r.comment && <> — “{r.comment}”</>}
-                <span className="mono text-[var(--ink-faint)]"> · {formatDate(r.at)}</span>
+                <span className="text-[var(--ink-faint)]"> · {formatDate(r.at)}</span>
               </li>
             ))}
           </ul>
@@ -232,19 +231,43 @@ function ClaimRow({
 
         {canReview && (
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="quiet" disabled={busy} onClick={() => review("reviewed")}>
+            <Button disabled={busy} onClick={() => review("reviewed")}>
               Mark reviewed
             </Button>
-            <Button variant="quiet" disabled={busy} onClick={() => review("changes_requested")}>
+            <Button disabled={busy} onClick={() => review("changes_requested")}>
               Request changes
             </Button>
-            <Button variant="quiet" disabled={busy} onClick={() => review("contested")}>
+            <Button variant="danger" disabled={busy} onClick={() => review("contested")}>
               Contest
             </Button>
           </div>
         )}
 
         {!!error && <div className="mt-3"><ErrorNote error={error} /></div>}
+
+        {/*
+          Discussion belongs on the claim, not in email. Before threads existed
+          the only way to say anything here was to review it — so a question
+          meant marking something contested.
+        */}
+        <div className="mt-3 border-t border-[var(--rule)] pt-3">
+          <button
+            onClick={() => setTalking((v) => !v)}
+            className="text-xs text-[var(--accent)] hover:underline"
+          >
+            {talking ? "Hide discussion" : "Discussion"}
+          </button>
+          {talking && (
+            <div className="mt-3">
+              <Discussion
+                circleId={circleId}
+                subject={{ type: "claim", id: claim.id }}
+                canComment={canReview}
+                compact
+              />
+            </div>
+          )}
+        </div>
       </div>
     </li>
   );
@@ -308,7 +331,7 @@ function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => v
 
   return (
     <Panel title="New claim" className="lay-in">
-      <div className="space-y-3 px-4 py-4">
+      <div className="space-y-4 px-5 pb-5">
         <Field
           label="Statement"
           hint="Say one thing that the evidence can support. Interpretations belong in an assessment type, not a factual claim."
@@ -418,7 +441,7 @@ function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => v
             {busy ? "Recording…" : "Put on the record"}
           </Button>
           {!versionId && (
-            <span className="text-xs italic text-[var(--ink-muted)]">
+            <span className="text-xs text-[var(--ink-muted)]">
               A claim with no citation can be recorded, but it carries no weight.
             </span>
           )}

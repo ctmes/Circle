@@ -2,6 +2,7 @@
 
 namespace App\Services\Authorisation;
 
+use App\Enums\AgentExecutionMode;
 use App\Enums\AuditEventType;
 use App\Enums\CircleRole;
 use App\Enums\Permission;
@@ -250,11 +251,48 @@ class AccessGate
         // The blueprint is the authoritative mandate; the role enum is a floor.
         $blueprint = $agent->relationLoaded('blueprint') ? $agent->blueprint : $agent->blueprint()->first();
 
-        if ($blueprint !== null && ! in_array($permission->value, $blueprint->allowed_actions ?? [], true)) {
-            return AccessDecision::deny(
-                'agent_mandate_denies',
-                sprintf('%s is outside the %s mandate.', $permission->value, $blueprint->key),
-            );
+        if ($blueprint !== null) {
+            if (! $blueprint->isActive()) {
+                return AccessDecision::deny('agent_blueprint_inactive', 'This agent has been suspended.');
+            }
+
+            // A Circle-scoped blueprint cannot be instanced anywhere else, even
+            // by its own organisation.
+            if ($blueprint->isCircleScoped() && $blueprint->circle_id !== $circle->id) {
+                return AccessDecision::deny(
+                    'agent_blueprint_wrong_circle',
+                    'This agent was authored for a different Circle.',
+                );
+            }
+
+            $mode = $blueprint->execution_mode ?? AgentExecutionMode::ReadOnly;
+
+            // The execution mode is checked before the declared action list, so
+            // that dropping an agent to read_only stops everything it could do
+            // without anyone having to edit its mandate or its tools.
+            if ($permission !== Permission::CircleView && ! $mode->canWrite() && $permission->isWrite()) {
+                return AccessDecision::deny(
+                    'agent_read_only',
+                    sprintf('%s is a read-only agent and cannot %s.', $blueprint->name, $permission->value),
+                );
+            }
+
+            if ($permission === Permission::AgentExecute && ! $mode->canExecute()) {
+                return AccessDecision::deny(
+                    'agent_cannot_execute',
+                    sprintf('%s is not permitted to execute actions.', $blueprint->name),
+                );
+            }
+
+            // effectivePermissions() is the intersection of what the blueprint
+            // declares and what its mode allows it to declare at all, so an
+            // authored agent cannot widen its own mandate by listing more.
+            if (! $blueprint->grants($permission)) {
+                return AccessDecision::deny(
+                    'agent_mandate_denies',
+                    sprintf('%s is outside the %s mandate.', $permission->value, $blueprint->key),
+                );
+            }
         }
 
         if ($resource !== null) {

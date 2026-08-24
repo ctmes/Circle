@@ -25,7 +25,7 @@ export function AcceptInvite({ token }: { token: string }) {
       <div className="w-full max-w-md">
         {error ? (
           <Panel title="This invitation could not be used" tone="signal">
-            <div className="px-4 py-4">
+            <div className="px-5 pb-5">
               <ErrorNote error={error} />
               <p className="mt-3 text-sm text-[var(--ink-muted)]">
                 Invitations are bound to the email address they were issued to,

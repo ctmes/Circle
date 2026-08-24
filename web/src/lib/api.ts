@@ -92,6 +92,9 @@ export interface Circle {
   name: string;
   purpose: string;
   status: "draft" | "active" | "closing" | "archived";
+  /** Whole percent, stated by the Circle's owner — not derived. */
+  progress: number;
+  progress_set_at: string | null;
   owner: { id: string; name: string | null };
   starts_at: string | null;
   expires_at: string | null;
@@ -317,6 +320,191 @@ export interface AgentSummaryRow {
   allowed_actions: string[];
   prohibited_actions: string[];
   can_access: Array<{ evidence_item_id: string; name: string }>;
+}
+
+// ------------------------------------------------- workflow, talk, agents
+
+export type GoalStatus =
+  | "draft" | "active" | "blocked" | "in_review" | "met" | "abandoned";
+
+export interface Party {
+  id: string;
+  label: string;
+  display_name: string;
+  organisation_id: string | null;
+  /** False while the party is named but its organisation is not on the platform. */
+  is_bound: boolean;
+  party_role:
+    | "convener" | "principal" | "contractor"
+    | "subcontractor" | "advisor" | "observer";
+  status: "invited" | "active" | "suspended" | "withdrawn";
+  is_convener: boolean;
+  is_active: boolean;
+  external_reference: string | null;
+  member_count: number;
+  joined_at: string | null;
+}
+
+export interface ScheduleChange {
+  id: string;
+  from_due_at: string | null;
+  to_due_at: string | null;
+  days_moved: number | null;
+  reason: string | null;
+  changed_by: string | null;
+  requires_party: string | null;
+  awaiting_agreement: boolean;
+  agreed_at: string | null;
+  created_at: string | null;
+}
+
+export interface Goal {
+  id: string;
+  parent_goal_id: string | null;
+  title: string;
+  description: string | null;
+  status: GoalStatus;
+  owner: { id: string; name: string | null } | null;
+  responsible_party: { id: string; label: string; role: string } | null;
+  acceptance_condition: string | null;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  starts_at: string | null;
+  due_at: string | null;
+  /** What to show. Averaged from children when this node has any. */
+  progress: number;
+  progress_reported: number;
+  progress_is_derived: boolean;
+  is_overdue: boolean;
+  position: number;
+  counts: { commitments: number; decisions: number; claims: number };
+  children?: Goal[];
+  schedule_changes?: ScheduleChange[];
+}
+
+export type ThreadSubject =
+  | "goal" | "claim" | "decision" | "commitment" | "evidence_item";
+
+export interface CommentRow {
+  id: string;
+  thread_id: string;
+  author_type: "user" | "agent";
+  author: string | null;
+  author_party: string | null;
+  body: string;
+  for_the_record: boolean;
+  /** In the export packet: either it carried an action or someone marked it. */
+  on_record: boolean;
+  action_type: string | null;
+  mentions: string[];
+  created_at: string | null;
+}
+
+export interface Thread {
+  id: string;
+  subject: { type: ThreadSubject; id: string };
+  visibility: "circle" | "party";
+  party: string | null;
+  status: string;
+  is_resolved: boolean;
+  last_activity_at: string | null;
+  created_at: string | null;
+  comment_count: number;
+  comments?: CommentRow[];
+  latest?: CommentRow | null;
+}
+
+/** Someone an @mention in a given thread would actually reach. */
+export interface MentionCandidate {
+  id: string;
+  name: string | null;
+  /** What gets typed after the @ — email local parts do not collide, first names do. */
+  handle: string;
+  party: string | null;
+}
+
+export interface MentionRow {
+  id: string;
+  comment_id: string;
+  thread_id: string;
+  subject: { type: ThreadSubject; id: string };
+  excerpt: string;
+  created_at: string | null;
+}
+
+export type SideEffect =
+  | "none" | "circle_write" | "external_read" | "external_write" | "financial";
+
+export interface AgentToolRow {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  side_effect: SideEffect;
+  needs_approval: boolean;
+  approval_role: string | null;
+  owning_party_only: boolean;
+  enabled: boolean;
+}
+
+export interface AgentBlueprintRow {
+  id: string;
+  key: string;
+  name: string;
+  mandate: string;
+  instructions: string | null;
+  is_system: boolean;
+  status: string;
+  execution_mode: "read_only" | "propose" | "execute";
+  provider: string;
+  circle_scoped: boolean;
+  /** What it can do after the execution mode's ceiling is applied. */
+  permissions: string[];
+  declared: string[];
+  prohibited: string[];
+  tools: AgentToolRow[];
+  instance_id: string | null;
+  is_running_here: boolean;
+  created_at: string | null;
+}
+
+export interface AgentConnectionRow {
+  id: string;
+  name: string;
+  party: string | null;
+  provider: string | null;
+  auth_mode: string;
+  status: string;
+  fingerprint: string | null;
+  is_admitted: boolean;
+  created_at: string | null;
+}
+
+export type AgentActionStatus =
+  | "proposed" | "awaiting_approval" | "approved" | "rejected"
+  | "executing" | "executed" | "failed" | "cancelled" | "expired";
+
+export interface AgentActionRow {
+  id: string;
+  agent: string | null;
+  tool_key: string;
+  tool_name: string;
+  side_effect: SideEffect;
+  status: AgentActionStatus;
+  intent: string | null;
+  arguments: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  on_behalf_of: string | null;
+  needs_role: string | null;
+  owning_party_only: boolean;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
+  expires_at: string | null;
+  is_expired: boolean;
+  executed_at: string | null;
+  created_at: string | null;
 }
 
 // ----------------------------------------------------------------- helpers

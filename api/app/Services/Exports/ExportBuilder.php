@@ -134,6 +134,7 @@ class ExportBuilder
             'name'         => $circle->name,
             'purpose'      => $circle->purpose,
             'status'       => $circle->status->value,
+            'progress'     => (int) $circle->progress,
             'organisation' => ['id' => $circle->organisation_id, 'name' => $circle->organisation->name],
             'owner'        => ['id' => $circle->owner_user_id, 'name' => $circle->owner?->name],
             'starts_at'    => $circle->starts_at?->toISOString(),

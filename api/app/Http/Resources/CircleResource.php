@@ -12,21 +12,25 @@ class CircleResource extends JsonResource
         $membership = $request->user()?->membershipIn($this->resource);
 
         return [
-            'id'         => $this->id,
-            'name'       => $this->name,
-            'purpose'    => $this->purpose,
-            'status'     => $this->status->value,
-            'owner'      => ['id' => $this->owner_user_id, 'name' => $this->owner?->name],
-            'starts_at'  => $this->starts_at?->toISOString(),
-            'expires_at' => $this->expires_at?->toISOString(),
-            'closed_at'  => $this->closed_at?->toISOString(),
-            'is_closed'  => $this->isClosed(),
-            'is_expired' => $this->isExpired(),
-            'created_at' => $this->created_at?->toISOString(),
+            'id'              => $this->id,
+            'name'            => $this->name,
+            'purpose'         => $this->purpose,
+            'status'          => $this->status->value,
+            // Stated by the owner, never derived from counting objects. The
+            // ring in the UI reports this figure and nothing else.
+            'progress'        => (int) $this->progress,
+            'progress_set_at' => $this->progress_set_at?->toISOString(),
+            'owner'           => ['id' => $this->owner_user_id, 'name' => $this->owner?->name],
+            'starts_at'       => $this->starts_at?->toISOString(),
+            'expires_at'      => $this->expires_at?->toISOString(),
+            'closed_at'       => $this->closed_at?->toISOString(),
+            'is_closed'       => $this->isClosed(),
+            'is_expired'      => $this->isExpired(),
+            'created_at'      => $this->created_at?->toISOString(),
             // What *this* caller may do here, so the UI never offers an action
             // the gate will refuse.
-            'my_role'    => $membership?->circle_role->value,
-            'my_access'  => $membership === null ? null : [
+            'my_role'         => $membership?->circle_role->value,
+            'my_access'       => $membership === null ? null : [
                 'is_external' => $membership->is_external,
                 'permissions' => array_map(
                     fn ($p) => $p->value,
