@@ -13,7 +13,7 @@ class Decision extends Model
     use HasUlids;
 
     protected $fillable = [
-        'circle_id', 'title', 'description', 'status',
+        'circle_id', 'goal_id', 'title', 'description', 'status',
         'created_by_user_id', 'approver_user_id',
         'subject_type', 'subject_id', 'subject_version',
         'agent_run_id', 'expires_at', 'resolved_at', 'resolution_comment',
@@ -31,6 +31,12 @@ class Decision extends Model
     public function circle(): BelongsTo
     {
         return $this->belongsTo(Circle::class);
+    }
+
+    /** The node of the plan this is about. Null for a decision about the mission at large. */
+    public function goal(): BelongsTo
+    {
+        return $this->belongsTo(Goal::class);
     }
 
     public function approver(): BelongsTo

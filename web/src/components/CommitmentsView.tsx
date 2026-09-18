@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { api, formatDate, relativeDays, type Commitment, type Member } from "../lib/api";
-import { CircleFrame } from "./CircleFrame";
+import { api, formatDate, relativeDays, type Commitment, type Goal, type Member } from "../lib/api";
+import { GoalChip, GoalField } from "./GoalPicker";
 import { COMMITMENT_TONE, DerivedStamp, StatusChip } from "./Trust";
 import {
   Button,
@@ -13,33 +13,22 @@ import {
   useAsync,
 } from "./ui";
 
-/** Commitments: a time-bound responsibility with an owner (spec §5). */
-export function CommitmentsView({ circleId }: { circleId: string }) {
-  return (
-    <CircleFrame circleId={circleId} tab="commitments">
-      {(circle) => (
-        <Body
-          circleId={circleId}
-          canCreate={
-            circle?.my_access?.permissions.includes("commitment.create") === true && !circle?.is_closed
-          }
-          canUpdate={
-            circle?.my_access?.permissions.includes("commitment.update") === true && !circle?.is_closed
-          }
-        />
-      )}
-    </CircleFrame>
-  );
-}
-
-function Body({
+/**
+ * Commitments: a time-bound responsibility with an owner (spec §5).
+ *
+ * Rendered inside RecordView rather than owning a tab of its own — the frame,
+ * the permissions and the plan are all fetched once up there and handed down.
+ */
+export function CommitmentsBody({
   circleId,
   canCreate,
   canUpdate,
+  goals,
 }: {
   circleId: string;
   canCreate: boolean;
   canUpdate: boolean;
+  goals: Goal[];
 }) {
   const [composing, setComposing] = useState(false);
   const { data, error, loading, reload, mutate } = useAsync<Commitment[]>(
@@ -76,6 +65,7 @@ function Body({
       {composing && (
         <Composer
           circleId={circleId}
+          goals={goals}
           onDone={() => {
             setComposing(false);
             reload();
@@ -95,7 +85,14 @@ function Body({
           <Empty>Nobody owes anything right now.</Empty>
         ) : (
           open.map((c, i) => (
-            <Row key={c.id} commitment={c} canUpdate={canUpdate} onUpdated={replace} index={i} />
+            <Row
+              key={c.id}
+              commitment={c}
+              circleId={circleId}
+              canUpdate={canUpdate}
+              onUpdated={replace}
+              index={i}
+            />
           ))
         )}
       </Panel>
@@ -103,7 +100,14 @@ function Body({
       {closed.length > 0 && (
         <Panel title="Settled">
           {closed.map((c, i) => (
-            <Row key={c.id} commitment={c} canUpdate={false} onUpdated={replace} index={i} />
+            <Row
+              key={c.id}
+              commitment={c}
+              circleId={circleId}
+              canUpdate={false}
+              onUpdated={replace}
+              index={i}
+            />
           ))}
         </Panel>
       )}
@@ -113,11 +117,13 @@ function Body({
 
 function Row({
   commitment,
+  circleId,
   canUpdate,
   onUpdated,
   index,
 }: {
   commitment: Commitment;
+  circleId: string;
   canUpdate: boolean;
   onUpdated: (commitment: Commitment) => void;
   index: number;
@@ -163,6 +169,7 @@ function Row({
 
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         {commitment.derived && <DerivedStamp compact />}
+        <GoalChip goal={commitment.goal} circleId={circleId} />
         <span className="text-xs text-[var(--ink-faint)]">
           {commitment.owner.name ?? "unassigned"}
         </span>
@@ -217,7 +224,15 @@ function Row({
   );
 }
 
-function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }) {
+function Composer({
+  circleId,
+  goals,
+  onDone,
+}: {
+  circleId: string;
+  goals: Goal[];
+  onDone: () => void;
+}) {
   const { data: members } = useAsync<{ members: Member[] }>(
     () => api.get<{ data: { members: Member[] } }>(`/circles/${circleId}/members`).then((r) => r.data),
     [circleId],
@@ -227,6 +242,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
   const [condition, setCondition] = useState("");
   const [owner, setOwner] = useState("");
   const [due, setDue] = useState("");
+  const [goalId, setGoalId] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -236,6 +252,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
     try {
       await api.post(`/circles/${circleId}/commitments`, {
         title,
+        goal_id: goalId || undefined,
         acceptance_condition: condition || undefined,
         owner_user_id: owner || undefined,
         due_at: due ? new Date(due).toISOString() : undefined,
@@ -259,6 +276,8 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
             placeholder="Confirm stock availability for the 14 Sept possession"
           />
         </Field>
+
+        <GoalField goals={goals} value={goalId} onChange={setGoalId} />
 
         <Field
           label="Acceptance condition"

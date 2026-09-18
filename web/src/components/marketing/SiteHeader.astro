@@ -1,0 +1,117 @@
+---
+import Mark from "./Mark.astro";
+
+/*
+  One row, hairline-ruled, translucent on scroll — the same `blurbar` the app
+  uses for its own header, so arriving in the product is not a visual event.
+
+  The mobile menu is a <details> element. It needs no JavaScript, it is keyboard
+  operable and screen-reader announced for free, and it cannot get stuck open in
+  a state the server disagrees with.
+*/
+const nav = [
+  { href: "/product", label: "Product" },
+  { href: "/security", label: "Security" },
+  { href: "/legal", label: "Legal" },
+  { href: "/contact", label: "Contact" },
+];
+
+const path = Astro.url.pathname;
+const isCurrent = (href: string) => path === href || path.startsWith(`${href}/`);
+---
+
+<header class="blurbar rule-b sticky top-0 z-40">
+  <div class="shell flex h-14 items-center justify-between gap-4">
+    <a href="/" class="flex items-center rounded-[10px]" aria-label="Circle — home">
+      <Mark size={16} />
+    </a>
+
+    <nav aria-label="Primary" class="hidden items-center gap-1 md:flex">
+      {
+        nav.map((item) => (
+          <a
+            href={item.href}
+            aria-current={isCurrent(item.href) ? "page" : undefined}
+            class:list={[
+              "rounded-[10px] px-3 py-1.5 text-[0.875rem] font-[520] transition-colors",
+              isCurrent(item.href)
+                ? "text-[var(--ink)]"
+                : "text-[var(--ink-muted)] hover:text-[var(--ink)]",
+            ]}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="flex items-center gap-2">
+      <!--
+        The label is decided on the client because the public site is cached and
+        the server does not know who is reading. A visitor with a live token
+        sees the way back into their work; everyone else sees the way in.
+      -->
+      <a
+        href="/login"
+        id="app-entry"
+        class="hidden text-[0.875rem] font-[520] text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)] sm:inline-flex sm:rounded-[10px] sm:px-3 sm:py-1.5"
+      >
+        Sign in
+      </a>
+      <a href="/contact" class="btn btn-primary !px-3.5 !py-2 !text-[0.875rem]">
+        Request a pilot
+      </a>
+
+      <details class="relative md:hidden">
+        <summary
+          class="flex size-9 cursor-pointer list-none items-center justify-center rounded-[10px] text-[var(--ink-muted)] [&::-webkit-details-marker]:hidden"
+          aria-label="Menu"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+            <path
+              d="M2 5h14M2 9h14M2 13h14"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+          </svg>
+        </summary>
+        <div
+          class="card absolute right-0 top-11 w-48 overflow-hidden p-1.5"
+          style="box-shadow: var(--shadow-ring), var(--shadow-float)"
+        >
+          {
+            nav.map((item) => (
+              <a
+                href={item.href}
+                class="block rounded-[8px] px-3 py-2 text-[0.875rem] text-[var(--ink-muted)] hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)]"
+              >
+                {item.label}
+              </a>
+            ))
+          }
+          <a
+            href="/login"
+            class="block rounded-[8px] px-3 py-2 text-[0.875rem] text-[var(--ink-muted)] hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)] sm:hidden"
+          >
+            Sign in
+          </a>
+        </div>
+      </details>
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  try {
+    if (localStorage.getItem("circle.token")) {
+      const entry = document.getElementById("app-entry");
+      if (entry) {
+        entry.textContent = "Open Circle";
+        entry.setAttribute("href", "/circles");
+      }
+    }
+  } catch {
+    /* Storage blocked. "Sign in" is the correct fallback for everyone. */
+  }
+</script>

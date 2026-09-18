@@ -425,13 +425,35 @@ class WorkflowApiTest extends TestCase
             ->assertJsonPath('data.0.needs_role', 'owner')
             ->assertJsonPath('data.0.on_behalf_of', 'JWA Mats');
 
-        $this->postJson("/api/agent-actions/{$action->id}/approve", ['note' => 'Confirmed with the yard by phone.'])
+        // The queue says up front that nothing stands behind this tool key, so
+        // the warning reaches the approver before their name is on it.
+        $queue->assertJsonPath('data.0.runnable', false);
+
+        // Recording consent without firing it: the approval is real, and the
+        // effect waits for the sweep or expires.
+        $this->postJson("/api/agent-actions/{$action->id}/approve", [
+            'note'    => 'Confirmed with the yard by phone.',
+            'execute' => false,
+        ])
             ->assertOk()
             ->assertJsonPath('data.status', 'approved')
             ->assertJsonPath('data.approved_by', 'Dana');
 
         // Approved actions leave the queue.
         $this->getJson("/api/circles/{$circle->id}/agent-actions")->assertJsonCount(0, 'data');
+
+        // `notify_yard` is a tool nobody implemented. Running it must fail with
+        // a reason rather than report a mobilisation notice that was never
+        // sent — the one outcome an execution ledger cannot survive.
+        $this->postJson("/api/agent-actions/{$action->id}/execute")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'failed')
+            ->assertJsonPath('data.approved_by', 'Dana');
+
+        $this->assertStringContainsString(
+            'No handler is registered',
+            AgentAction::find($action->id)->error,
+        );
     }
 
     public function test_a_rejected_action_is_kept_with_its_reason(): void

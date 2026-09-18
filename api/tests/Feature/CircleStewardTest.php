@@ -274,4 +274,62 @@ class CircleStewardTest extends TestCase
         $this->assertStringContainsString('truncated', $this->ai->lastUserPrompt);
         $this->assertStringContainsString('Do not conclude anything is absent', $this->ai->lastUserPrompt);
     }
+
+    public function test_the_model_is_never_asked_which_evidence_is_stale(): void
+    {
+        [$owner, $circle] = $this->scenario();
+
+        $this->ai->setResponse(['summary' => 'ok', 'status' => 'on_track', 'claims' => [], 'decision_drafts' => [], 'missing_evidence' => []]);
+        app(CircleSteward::class)->runBrief($circle, $owner);
+
+        // No field to fill in...
+        $this->assertArrayNotHasKey('potentially_stale', $this->ai->lastSchema['properties']);
+
+        // ...and nothing in the prompt asking for one. Both halves matter: a
+        // task the schema cannot express is a task the model answers in prose.
+        $this->assertStringNotContainsString('days that look like', $this->ai->lastUserPrompt);
+        $this->assertStringNotContainsString('5.', $this->ai->lastUserPrompt);
+    }
+
+    public function test_staleness_is_computed_from_ages_not_taken_from_the_model(): void
+    {
+        $owner = $this->makeUser('Dana Okafor', 'gm3@jwamats.test');
+        $org = $this->makeOrganisation();
+        $circle = $this->makeCircle($org, $owner);
+
+        config(['circle.staleness.after_days' => 30]);
+
+        $old = $this->makeEvidence($circle, $owner, 'Superseded load schedule', agentRead: true,
+            extractedText: 'Operating crane assumption: 70 t');
+        $fresh = $this->makeEvidence($circle, $owner, 'This week site photo', agentRead: true,
+            extractedText: 'Pad poured and cured.');
+
+        // Age is a property of the version, so that is what gets backdated.
+        $old->currentVersion()->forceFill(['created_at' => now()->subDays(200)])->save();
+
+        // The model answers with staleness it was never asked for, naming an
+        // item that is in fact current. The point of moving this into code is
+        // that output like this now has nowhere to land.
+        $this->ai->setResponse([
+            'summary' => 'ok', 'status' => 'on_track', 'claims' => [], 'decision_drafts' => [], 'missing_evidence' => [],
+            'potentially_stale' => [
+                ['evidence_item_id' => $fresh->id, 'reason' => 'Looks old to me.'],
+            ],
+        ]);
+
+        app(CircleSteward::class)->runBrief($circle, $owner);
+
+        $brief = DerivedArtifact::where('circle_id', $circle->id)
+            ->where('artifact_type', 'agent_summary')->firstOrFail();
+
+        $stale = $brief->content_json['potentially_stale'];
+
+        $this->assertCount(1, $stale, 'only the genuinely old item should be flagged');
+        $this->assertSame($old->id, $stale[0]['evidence_item_id']);
+        $this->assertSame(200, $stale[0]['age_days']);
+        $this->assertStringContainsString('threshold 30 days', $stale[0]['reason']);
+
+        $flaggedIds = array_column($stale, 'evidence_item_id');
+        $this->assertNotContains($fresh->id, $flaggedIds, "the model's invented flag must be discarded");
+    }
 }

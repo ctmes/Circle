@@ -14,6 +14,12 @@ interface ExportRow {
   manifest: {
     files?: Record<string, { sha256: string; bytes: number }>;
     contains_originals?: boolean;
+    originals?: {
+      included_count?: number;
+      omitted_count?: number;
+      bytes_included?: number;
+      byte_cap_human?: string;
+    };
     note?: string;
   } | null;
   download_url: string | null;
@@ -88,17 +94,28 @@ function Body({
         <div className="space-y-4 px-5 pb-5">
           <p className="text-sm leading-snug">
             The packet is the Circle's record in one archive: mission metadata,
-            every participant and when their access ended, an evidence manifest
-            with a SHA-256 for every version, all claims and their citations,
-            every decision with the exact version approved and by whom, all
-            commitments, every agent run and what it read, and the complete
-            audit chain with its verification result.
+            every party and person and when their access ended, the goal tree
+            with every movement of a due date and who agreed to it, an evidence
+            manifest with a SHA-256 for every version, all claims and their
+            citations, every decision with the exact version approved and by
+            whom, all commitments, the on-record conversation, every agent run
+            and what it read, every action an agent attempted and who authorised
+            it, and the complete audit chain with its verification result.
           </p>
 
           <p className="text-sm leading-snug text-[var(--ink-muted)]">
-            It does not contain the original files. It contains their digests, so
-            anyone holding the originals can prove they are the same bytes this
-            Circle recorded — without the packet becoming a copy of the vault.
+            The original files travel with it, under evidence/, up to a size
+            limit — each carrying both the digest of the bytes as shipped and the
+            digest this Circle recorded at upload, so a reader can prove they
+            match. Anything too large to fit is named in the manifest with the
+            reason, and its digest is still there to identify it by.
+          </p>
+
+          <p className="text-sm leading-snug text-[var(--ink-muted)]">
+            Conversation is included per comment: one that carried a state change
+            is always in the packet, plain discussion only if its author marked
+            it for the record. What is withheld is counted, never silently
+            dropped.
           </p>
 
           {!!error && <ErrorNote error={error} />}
@@ -138,8 +155,13 @@ function Body({
               <Fact label="Packet SHA-256">
                 {packet.sha256 ? <Copyable value={packet.sha256} truncate={28} /> : "—"}
               </Fact>
-              <Fact label="Contains originals">
-                {packet.manifest?.contains_originals ? "yes" : "no — digests only"}
+              <Fact label="Original files">
+                {packet.manifest?.contains_originals
+                  ? `${packet.manifest.originals?.included_count ?? 0} included` +
+                    (packet.manifest.originals?.omitted_count
+                      ? ` · ${packet.manifest.originals.omitted_count} omitted, reasons in manifest`
+                      : "")
+                  : "none — digests only"}
               </Fact>
             </div>
 

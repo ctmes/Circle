@@ -36,6 +36,29 @@ class User extends Authenticatable implements Actor
         ];
     }
 
+    /**
+     * Send the reset link to the front end rather than to the API.
+     *
+     * Laravel's default points at a named web route this application does not
+     * have — it serves JSON and the interface is a separate Astro app. A reset
+     * link that lands on an API endpoint is a link nobody can use, and this is
+     * the one message whose recipient is by definition unable to work around
+     * it.
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $url = sprintf(
+            '%s/reset-password?token=%s&email=%s',
+            config('circle.notifications.web_url'),
+            $token,
+            urlencode($this->email),
+        );
+
+        \Illuminate\Support\Facades\Mail::to($this->email)->queue(
+            new \App\Mail\PasswordReset($url, (int) config('auth.passwords.users.expire', 60)),
+        );
+    }
+
     // ---------------------------------------------------------- Actor
 
     public function actorType(): ActorType

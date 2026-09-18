@@ -11,6 +11,7 @@ use App\Models\Commitment;
 use App\Models\CommitmentUpdate;
 use App\Models\Decision;
 use App\Models\DecisionApproval;
+use App\Models\Goal;
 use App\Models\User;
 use App\Services\Audit\AuditChain;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +27,10 @@ use Illuminate\Support\Facades\DB;
  */
 class DecisionService
 {
-    public function __construct(private readonly AuditChain $audit) {}
+    public function __construct(
+        private readonly AuditChain $audit,
+        private readonly \App\Services\Notifications\Notifier $notifier,
+    ) {}
 
     public function create(
         Circle $circle,
@@ -38,9 +42,15 @@ class DecisionService
         ?string $subjectId = null,
         ?string $subjectVersion = null,
         ?\DateTimeInterface $expiresAt = null,
+        ?Goal $goal = null,
     ): Decision {
         $decision = Decision::create([
             'circle_id'          => $circle->id,
+            // The node of the plan this decides. Distinct from the subject
+            // triple below, which is the exact artefact version being approved:
+            // a decision can bind to an evidence version *and* belong to a goal,
+            // and the tree needs the second to count it.
+            'goal_id'            => $goal?->id,
             'title'              => $title,
             'description'        => $description,
             // A decision only becomes actionable once someone is named to make
@@ -63,6 +73,13 @@ class DecisionService
                 'subject_id'   => $subjectId,
             ],
         );
+
+        // Only the named approver can ever resolve this — the role alone is not
+        // enough — so a decision nobody was told about is work that stops.
+        if ($approver !== null) {
+            $decision->setRelation('circle', $circle)->setRelation('approver', $approver);
+            $this->notifier->decisionAssigned($decision);
+        }
 
         return $decision;
     }
@@ -169,9 +186,14 @@ class DecisionService
         ?string $description = null,
         ?string $acceptanceCondition = null,
         CommitmentStatus $status = CommitmentStatus::Open,
+        ?Goal $goal = null,
     ): Commitment {
         $commitment = Commitment::create([
             'circle_id'            => $circle->id,
+            // The controller has validated and gated on this goal since the
+            // tree landed, then dropped it here — so every commitment a person
+            // made was unattached while every one an agent made was not.
+            'goal_id'              => $goal?->id,
             'title'                => $title,
             'description'          => $description,
             'acceptance_condition' => $acceptanceCondition,
@@ -185,9 +207,10 @@ class DecisionService
         $this->audit->record(
             AuditEventType::CommitmentCreated, $circle, ActorType::User, $creator->id,
             'commitment', $commitment->id, metadata: [
-                'title'  => $title,
-                'owner'  => $owner?->id,
-                'due_at' => $dueAt?->format(DATE_ATOM),
+                'title'   => $title,
+                'owner'   => $owner?->id,
+                'goal_id' => $goal?->id,
+                'due_at'  => $dueAt?->format(DATE_ATOM),
             ],
         );
 

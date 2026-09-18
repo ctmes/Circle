@@ -1,0 +1,270 @@
+/*
+  Circle — public site.
+
+  The product's design system (global.css) is imported first and is not
+  modified: the marketing site has to look like the thing it is selling, so it
+  borrows the same canvas, the same hairlines, the same single accent and the
+  same rule that machine-derived content is indigo and labelled.
+
+  What is added here is the one register the app has no need for — an editorial
+  voice for large statements. Instrument Serif carries the display lines because
+  the product is a document of record, and a document of record has never looked
+  like a dashboard. Everything smaller than a headline stays in the app's own
+  face, so the two never feel like separate products.
+*/
+
+@import "./global.css";
+
+@theme {
+  --font-editorial: "Instrument Serif", "Iowan Old Style", "Palatino Linotype",
+    Georgia, serif;
+}
+
+:root {
+  /* Faint ruled ground, in the manner of a drawing sheet. Deliberately at the
+     edge of visibility — it should be felt as texture, never read as a grid. */
+  --grid-line: color-mix(in srgb, var(--ink) 4.5%, transparent);
+  --page-max: 68rem;
+}
+
+:root[data-theme="dark"] {
+  --grid-line: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.shell {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .shell { padding-inline: 2.5rem; }
+}
+
+/* ----------------------------------------------------------------- ground */
+
+/*
+  Two grids at different pitches, the finer one fading out first, so the hero
+  reads as a sheet rather than as a pattern swatch. Masked to nothing well
+  before the text ends — type over a grid is a legibility tax with no return.
+*/
+.sheet {
+  position: relative;
+  isolation: isolate;
+}
+
+.sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 88px 88px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(
+    ellipse 82% 62% at 50% 12%,
+    #000 0%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    ellipse 82% 62% at 50% 12%,
+    #000 0%,
+    transparent 78%
+  );
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------- typography */
+
+.editorial {
+  font-family: var(--font-editorial);
+  font-weight: 400;
+  letter-spacing: -0.014em;
+  line-height: 1.04;
+  /* The face has a high stroke contrast; a hair of optical sizing keeps the
+     thin strokes from disappearing at hero scale on low-density screens. */
+  -webkit-font-smoothing: antialiased;
+}
+
+.editorial em {
+  font-style: italic;
+  color: var(--ink-muted);
+}
+
+/* A drawing-sheet field number: mono, faint, tabular. */
+.fieldno {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ marks */
+
+/* The ruled register: a list that reads as a schedule of items, not as cards. */
+.register > * + * {
+  border-top: 1px solid var(--rule);
+}
+
+/* --------------------------------------------------------------- controls */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--r-control);
+  padding: 0.6875rem 1.125rem;
+  font-size: 0.9375rem;
+  font-weight: 560;
+  letter-spacing: -0.008em;
+  white-space: nowrap;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.btn:active { transform: scale(0.98); }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+.btn-primary:hover { background: var(--accent-hover); }
+
+.btn-quiet {
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+.btn-quiet:hover { background: var(--paper-sunk); }
+
+/* ------------------------------------------------------------ legal prose */
+
+/*
+  Legal documents are read by two people: a buyer skimming for the clause that
+  worries them, and a lawyer reading every word. The measure is held near 68
+  characters and the headings are numbered and anchored, so both can work.
+*/
+.legal-prose {
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--ink-muted);
+}
+
+.legal-prose > * + * { margin-top: 1rem; }
+
+.legal-prose h2 {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 640;
+  line-height: 1.3;
+  letter-spacing: -0.014em;
+  color: var(--ink);
+  margin-top: 2.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  scroll-margin-top: 6rem;
+}
+
+.legal-prose > h2:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+
+.legal-prose h3 {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin-top: 1.75rem;
+  scroll-margin-top: 6rem;
+}
+
+.legal-prose strong { color: var(--ink); font-weight: 600; }
+
+.legal-prose a {
+  color: var(--accent);
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+  text-decoration: underline;
+}
+
+.legal-prose ul,
+.legal-prose ol {
+  padding-left: 1.25rem;
+  margin-top: 0.75rem;
+}
+.legal-prose ul { list-style: disc; }
+.legal-prose ol { list-style: decimal; }
+.legal-prose li + li { margin-top: 0.4rem; }
+.legal-prose li::marker { color: var(--ink-faint); }
+
+.legal-prose blockquote {
+  border-left: 2px solid var(--rule-strong);
+  padding-left: 1rem;
+  color: var(--ink-faint);
+}
+
+.legal-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--paper-sunk);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+
+/* Tables carry the sub-processor list and the data inventory; they must stay
+   readable on a phone, so each one scrolls inside its own rail. */
+.legal-prose .table-rail {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  margin-top: 1.25rem;
+}
+
+.legal-prose table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.legal-prose th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper-inset);
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.legal-prose td {
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+.legal-prose tr:last-child td { border-bottom: 0; }
+
+/*
+  A placeholder that has not been filled in yet. Rendered in the alarm colour
+  on purpose: this must be impossible to publish by accident.
+*/
+.legal-prose .todo,
+.todo {
+  color: var(--signal);
+  background: var(--signal-soft);
+  border-radius: 5px;
+  padding: 0.05em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-weight: 500;
+}

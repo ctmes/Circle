@@ -12,8 +12,8 @@ class CircleMembership extends Model
     use HasUlids;
 
     protected $fillable = [
-        'circle_id', 'user_id', 'circle_party_id', 'circle_role', 'is_external',
-        'invite_status', 'expires_at', 'revoked_at',
+        'circle_id', 'user_id', 'circle_party_id', 'engagement_id', 'circle_role',
+        'is_external', 'invite_status', 'expires_at', 'revoked_at',
     ];
 
     protected function casts(): array
@@ -47,6 +47,24 @@ class CircleMembership extends Model
         return $this->belongsTo(CircleParty::class, 'circle_party_id');
     }
 
+    /**
+     * The contract that issued this seat, if one did (spec §21.2).
+     *
+     * Null for everyone who was simply invited, which is the ordinary case.
+     * Where it is set the seat lives and dies with the engagement — AccessGate
+     * reads it as check (7), and it can only ever narrow what the role gives.
+     */
+    public function engagement(): BelongsTo
+    {
+        return $this->belongsTo(Engagement::class);
+    }
+
+    /** Whether this seat was issued by a temp contract rather than an invitation. */
+    public function isEngaged(): bool
+    {
+        return $this->engagement_id !== null;
+    }
+
     public function isActive(): bool
     {
         return $this->revoked_at === null
@@ -75,9 +93,7 @@ class CircleMembership extends Model
             return $this->circle_party_id;
         }
 
-        return CircleParty::where('circle_id', $this->circle_id)
-            ->where('is_convener', true)
-            ->value('id');
+        return CircleParty::convenerIdFor($this->circle_id);
     }
 
     public function isExternal(): bool

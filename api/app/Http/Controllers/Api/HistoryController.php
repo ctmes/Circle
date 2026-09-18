@@ -111,6 +111,48 @@ class HistoryController extends Controller
         ];
     }
 
+    /**
+     * What changed about the mission statement, in the words a reader wants.
+     *
+     * The card says which fields moved and — for the name, which is how every
+     * other screen refers to this Circle — what it moved to. The old and new
+     * text of the purpose is in the metadata below the card, because a
+     * restated purpose is routinely a paragraph and a one-liner that tried to
+     * carry it would carry neither version legibly.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function summariseDetailsChange(array $meta): string
+    {
+        $changes = $meta['changes'] ?? [];
+
+        $parts = [];
+
+        if (isset($changes['name'])) {
+            $parts[] = 'renamed to "' . $changes['name']['to'] . '"';
+        }
+
+        if (isset($changes['purpose'])) {
+            $parts[] = 'purpose restated';
+        }
+
+        if (isset($changes['expires_at'])) {
+            $parts[] = $changes['expires_at']['to'] === null
+                ? 'deadline removed'
+                : 'deadline moved to ' . $changes['expires_at']['to'];
+        }
+
+        if (isset($changes['status'])) {
+            $parts[] = "status set to {$changes['status']['to']}";
+        }
+
+        $summary = 'Circle ' . ($parts === [] ? 'details changed' : implode(', ', $parts));
+
+        return isset($meta['reason']) && $meta['reason'] !== null
+            ? $summary . ' — ' . $meta['reason']
+            : $summary;
+    }
+
     /** A human-readable one-liner for the event card (spec §12). */
     private function summarise(AuditEvent $event): string
     {
@@ -127,6 +169,7 @@ class HistoryController extends Controller
                 'Circle closed; %d external membership(s) revoked',
                 $meta['external_memberships_revoked'] ?? 0,
             ),
+            'circle.details_changed'     => $this->summariseDetailsChange($meta),
             'resource.uploaded'          => "Uploaded {$meta['filename']}",
             'resource.version_created'   => "New version {$event->resource_version} of {$meta['filename']}",
             'resource.viewed'            => 'Evidence viewed',

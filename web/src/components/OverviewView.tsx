@@ -28,7 +28,7 @@ import { Button, Empty, ErrorNote, Loading, Meta, Panel, useAsync } from "./ui";
  */
 export function OverviewView({ circleId }: { circleId: string }) {
   return (
-    <CircleFrame circleId={circleId} tab="">
+    <CircleFrame circleId={circleId} tab="now">
       {(circle) => <Body circleId={circleId} circle={circle} />}
     </CircleFrame>
   );
@@ -237,10 +237,10 @@ function NeedsYou({
               <p className="mt-1.5 text-sm leading-snug text-[var(--ink)]">{m.excerpt}</p>
               {m.subject.type === "goal" && (
                 <a
-                  href={`/circles/${circleId}/work`}
+                  href={`/circles/${circleId}`}
                   className="mt-1 inline-block text-xs text-[var(--accent)] no-underline hover:underline"
                 >
-                  Open in Work
+                  Open in Plan
                 </a>
               )}
             </li>
@@ -317,10 +317,10 @@ function PlanSummary({
       className="lay-in"
       meta={
         <a
-          href={`/circles/${circleId}/work`}
+          href={`/circles/${circleId}`}
           className="text-xs text-[var(--accent)] no-underline hover:underline"
         >
-          Open Work
+          Open Plan
         </a>
       }
     >
@@ -329,7 +329,7 @@ function PlanSummary({
       ) : goals.length === 0 ? (
         <Empty>
           No goals yet. The plan is what everything else hangs off — start it in
-          Work.
+          Plan.
         </Empty>
       ) : (
         <ul>

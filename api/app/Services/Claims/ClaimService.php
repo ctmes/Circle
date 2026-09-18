@@ -12,6 +12,7 @@ use App\Models\Claim;
 use App\Models\ClaimCitation;
 use App\Models\ClaimReview;
 use App\Models\EvidenceVersion;
+use App\Models\Goal;
 use App\Models\User;
 use App\Services\Audit\AuditChain;
 use App\Support\CitationLocator;
@@ -31,10 +32,16 @@ class ClaimService
         ClaimType $type,
         array $citations = [],
         ?float $confidence = null,
+        ?Goal $goal = null,
     ): Claim {
-        return DB::transaction(function () use ($circle, $author, $statement, $type, $citations, $confidence) {
+        return DB::transaction(function () use ($circle, $author, $statement, $type, $citations, $confidence, $goal) {
             $claim = Claim::create([
                 'circle_id'   => $circle->id,
+                // Which part of the plan this is about. Null is a real answer —
+                // plenty of claims are about the mission rather than one node —
+                // but it is now an answer somebody gave rather than the only
+                // one the API could record.
+                'goal_id'     => $goal?->id,
                 'author_type' => 'user',
                 'author_id'   => $author->id,
                 'statement'   => $statement,
@@ -54,6 +61,7 @@ class ClaimService
                 'claim', $claim->id, metadata: [
                     'claim_type'     => $type->value,
                     'citation_count' => count($citations),
+                    'goal_id'        => $goal?->id,
                 ],
             );
 

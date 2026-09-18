@@ -13,7 +13,7 @@ class Commitment extends Model
     use HasUlids;
 
     protected $fillable = [
-        'circle_id', 'goal_id', 'title', 'description', 'acceptance_condition', 'status',
+        'circle_id', 'goal_id', 'engagement_id', 'title', 'description', 'acceptance_condition', 'status',
         'owner_user_id', 'owner_party_id', 'created_by_user_id', 'created_by_type',
         'agent_run_id', 'due_at', 'completed_at',
     ];
@@ -41,6 +41,19 @@ class Commitment extends Model
     public function goal(): BelongsTo
     {
         return $this->belongsTo(Goal::class);
+    }
+
+    /**
+     * The contract this is a deliverable under (spec §21.2).
+     *
+     * No separate deliverable object: a commitment already has an owner party,
+     * an acceptance condition, a due date and an update trail, which is a
+     * deliverable in every respect that matters. Accepting it is what closes
+     * the fee obligation.
+     */
+    public function engagement(): BelongsTo
+    {
+        return $this->belongsTo(Engagement::class);
     }
 
     /**

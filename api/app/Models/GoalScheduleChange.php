@@ -46,6 +46,12 @@ class GoalScheduleChange extends Model
         return $this->belongsTo(CircleParty::class, 'requires_party_id');
     }
 
+    /** The person who assented on the counterparty's behalf, where one did. */
+    public function agreedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'agreed_by_user_id');
+    }
+
     /** A move that needed the counterparty and has not got it yet. */
     public function isAwaitingAgreement(): bool
     {

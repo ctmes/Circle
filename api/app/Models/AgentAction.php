@@ -82,6 +82,11 @@ class AgentAction extends Model
         return $this->belongsTo(User::class, 'approved_by_user_id');
     }
 
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by_user_id');
+    }
+
     public function isExpired(): bool
     {
         return $this->expires_at !== null

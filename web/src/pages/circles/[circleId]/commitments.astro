@@ -1,10 +1,10 @@
 ---
 import Base from "../../../layouts/Base.astro";
-import { CommitmentsView } from "../../../components/CommitmentsView";
+import { RecordView } from "../../../components/RecordView";
 
 export const prerender = false;
 const { circleId } = Astro.params;
 ---
 <Base title="Commitments">
-  <CommitmentsView client:load circleId={circleId!} />
+  <RecordView client:load circleId={circleId!} initialKind="commitments" />
 </Base>

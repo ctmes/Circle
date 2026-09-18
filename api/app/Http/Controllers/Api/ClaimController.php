@@ -6,6 +6,7 @@ use App\Enums\ClaimType;
 use App\Enums\Permission;
 use App\Models\Circle;
 use App\Models\Claim;
+use App\Models\Goal;
 use App\Services\Authorisation\AccessGate;
 use App\Services\Claims\ClaimService;
 use Illuminate\Http\JsonResponse;
@@ -24,9 +25,10 @@ class ClaimController extends Controller
         $this->gate->authorise($request->user(), Permission::CircleView, $circle);
 
         $claims = Claim::where('circle_id', $circle->id)
-            ->with(['citations.evidenceVersion.evidenceItem.resource', 'author', 'reviews.reviewer'])
+            ->with(['citations.evidenceVersion.evidenceItem.resource', 'author', 'reviews.reviewer', 'goal'])
             ->when($request->query('status'), fn ($q, $v) => $q->where('status', $v))
             ->when($request->query('author_type'), fn ($q, $v) => $q->where('author_type', $v))
+            ->when($request->query('goal'), fn ($q, $v) => $q->where('goal_id', $v))
             ->orderByDesc('created_at')
             ->get();
 
@@ -38,6 +40,7 @@ class ClaimController extends Controller
         $this->gate->authorise($request->user(), Permission::ClaimCreate, $circle);
 
         $data = $request->validate([
+            'goal_id'                         => ['nullable', 'string'],
             'statement'                       => ['required', 'string', 'max:5000'],
             'claim_type'                      => ['required', 'string', 'in:factual,technical_assessment,commercial_assessment,risk,recommendation'],
             'confidence'                      => ['nullable', 'numeric', 'min:0', 'max:1'],
@@ -56,12 +59,13 @@ class ClaimController extends Controller
                 type: ClaimType::from($data['claim_type']),
                 citations: $data['citations'] ?? [],
                 confidence: $data['confidence'] ?? null,
+                goal: $this->goalIn($circle, $data['goal_id'] ?? null),
             );
         } catch (\InvalidArgumentException|\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        return response()->json(['data' => $this->present($claim->load('citations', 'author'))], 201);
+        return response()->json(['data' => $this->present($claim->load('citations', 'author', 'goal'))], 201);
     }
 
     public function show(Request $request, Claim $claim): JsonResponse
@@ -69,7 +73,7 @@ class ClaimController extends Controller
         $this->gate->authorise($request->user(), Permission::CircleView, $claim->circle);
 
         return response()->json([
-            'data' => $this->present($claim->load('citations.evidenceVersion.evidenceItem.resource', 'author', 'reviews.reviewer')),
+            'data' => $this->present($claim->load('citations.evidenceVersion.evidenceItem.resource', 'author', 'reviews.reviewer', 'goal')),
         ]);
     }
 
@@ -114,11 +118,35 @@ class ClaimController extends Controller
         return response()->json(['data' => $this->present($claim->fresh()->load('citations', 'reviews.reviewer', 'author'))]);
     }
 
+    /**
+     * Resolves a goal id against *this* Circle.
+     *
+     * `exists:goals,id` is not enough on its own: it would accept a node from
+     * any other Circle in the database and quietly file this claim under
+     * somebody else's plan. Same check CreateCommitmentTool makes.
+     */
+    private function goalIn(Circle $circle, ?string $goalId): ?Goal
+    {
+        if ($goalId === null) {
+            return null;
+        }
+
+        $goal = Goal::where('circle_id', $circle->id)->whereKey($goalId)->first();
+
+        abort_if($goal === null, 422, 'That goal is not part of this Circle.');
+
+        return $goal;
+    }
+
     private function present(Claim $claim): array
     {
         return [
             'id'          => $claim->id,
             'statement'   => $claim->statement,
+            'goal'        => $claim->goal_id === null ? null : [
+                'id'    => $claim->goal_id,
+                'title' => $claim->goal?->title,
+            ],
             'claim_type'  => $claim->claim_type->value,
             'status'      => $claim->status->value,
             'confidence'  => $claim->confidence,

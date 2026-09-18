@@ -1,0 +1,161 @@
+---
+import Mark from "./Mark.astro";
+import { SITE, isPlaceholder } from "../../lib/site";
+
+/*
+  The footer is the site's legal surface as much as its navigation: the entity
+  name, the ABN and the registered office belong here, because APP 1.4 requires
+  a privacy policy to say who the entity is, and a buyer's procurement team
+  looks for it in exactly this spot.
+*/
+const columns = [
+  {
+    heading: "Product",
+    links: [
+      { href: "/product", label: "How it works" },
+      { href: "/product#agents", label: "Agents" },
+      { href: "/security", label: "Security" },
+      { href: "/login", label: "Sign in" },
+    ],
+  },
+  {
+    heading: "Company",
+    links: [
+      { href: "/contact", label: "Request a pilot" },
+      { href: `mailto:${SITE.email.general}`, label: "General enquiries" },
+      { href: "/legal/responsible-disclosure", label: "Report a vulnerability" },
+    ],
+  },
+  {
+    heading: "Legal",
+    links: [
+      { href: "/legal/terms", label: "Terms of Service" },
+      { href: "/legal/privacy", label: "Privacy Policy" },
+      { href: "/legal/dpa", label: "Data Processing Addendum" },
+      { href: "/legal/subprocessors", label: "Sub-processors" },
+      { href: "/legal/acceptable-use", label: "Acceptable Use" },
+      { href: "/legal/cookies", label: "Cookies" },
+    ],
+  },
+];
+
+const entityLine = [SITE.legal.entity, SITE.legal.abn].join(" · ");
+const unfilled = isPlaceholder(entityLine) || isPlaceholder(SITE.legal.address);
+---
+
+<footer class="rule-t mt-24 bg-[var(--paper-inset)]">
+  <div class="shell py-14">
+    <div class="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)] md:gap-8">
+      <div>
+        <Mark size={16} />
+        <p class="mt-3 max-w-[26ch] text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+          {SITE.tagline}
+        </p>
+
+        <p class="mt-4 inline-flex items-center gap-2 text-[0.75rem] text-[var(--ink-faint)]">
+          <span
+            class="inline-block size-[6px] rounded-full"
+            style="background: var(--accent)"
+            aria-hidden="true"></span>
+          {SITE.stage.line}
+        </p>
+      </div>
+
+      {
+        columns.map((column) => (
+          <nav aria-label={column.heading}>
+            <h2 class="label mb-3">{column.heading}</h2>
+            <ul class="space-y-2">
+              {column.links.map((link) => (
+                <li>
+                  <a
+                    href={link.href}
+                    class="text-[0.8125rem] text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
+
+    <div
+      class="rule-t mt-12 flex flex-col gap-3 pt-6 text-[0.75rem] text-[var(--ink-faint)] sm:flex-row sm:items-baseline sm:justify-between"
+    >
+      <p>
+        © {new Date().getFullYear()}
+        {entityLine}. {SITE.legal.address}
+      </p>
+
+      <div class="flex flex-wrap items-baseline gap-x-5 gap-y-2">
+        <p class="mono">
+          Legal documents v{SITE.legalVersion} · effective {SITE.legalEffective}
+        </p>
+        <!--
+          The app has a theme toggle; without one here a reader who chose dark in
+          the product would have no way to change it back from the public site,
+          and no way to choose it in the first place. Same storage key, so the
+          choice carries across the boundary.
+        -->
+        <button
+          type="button"
+          id="theme-toggle"
+          class="rounded-[var(--r-control)] px-2 py-1 text-[0.75rem] text-[var(--ink-faint)] transition-colors hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)]"
+          aria-pressed="false"
+        >
+          <span id="theme-toggle-label">Dark theme</span>
+        </button>
+      </div>
+    </div>
+
+    {
+      unfilled && (
+        <p class="mt-4 text-[0.75rem]">
+          <span class="todo">
+            Placeholders remain in site.ts — see web/PLACEHOLDERS.md before publishing.
+          </span>
+        </p>
+      )
+    }
+  </div>
+</footer>
+
+<script>
+  /*
+    Writes the same `circle-theme` key the app's ThemeToggle uses, so a choice
+    made on either side of the boundary is honoured on the other. The inline
+    script in the layout applies it before first paint; this only has to keep
+    the label and the pressed state honest.
+  */
+  const button = document.getElementById("theme-toggle");
+  const label = document.getElementById("theme-toggle-label");
+
+  const sync = () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    if (label) label.textContent = dark ? "Light theme" : "Dark theme";
+    button?.setAttribute("aria-pressed", String(dark));
+  };
+
+  button?.addEventListener("click", () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+
+    if (dark) {
+      delete document.documentElement.dataset.theme;
+    } else {
+      document.documentElement.dataset.theme = "dark";
+    }
+
+    try {
+      localStorage.setItem("circle-theme", dark ? "light" : "dark");
+    } catch {
+      /* Storage blocked: the theme still flips, it just will not persist. */
+    }
+
+    sync();
+  });
+
+  sync();
+</script>

@@ -2,6 +2,12 @@
 
 namespace App\Providers;
 
+use App\Services\Agent\Tools\CreateCommitmentTool;
+use App\Services\Agent\Tools\CreateGoalTool;
+use App\Services\Agent\Tools\FlagEvidenceStaleTool;
+use App\Services\Agent\Tools\PostCommentTool;
+use App\Services\Agent\Tools\ReportGoalProgressTool;
+use App\Services\Agent\Tools\ToolRegistry;
 use App\Services\Ai\AiProvider;
 use App\Services\Ai\AnthropicProvider;
 use App\Services\Ai\NullAiProvider;
@@ -24,6 +30,7 @@ class AppServiceProvider extends ServiceProvider
                     model: $config['model'],
                     maxTokens: $config['max_tokens'],
                     timeoutSeconds: $config['timeout_seconds'],
+                    effort: $config['effort'] ?? null,
                 ),
                 default => new NullAiProvider(),
             };
@@ -32,6 +39,27 @@ class AppServiceProvider extends ServiceProvider
             // quietly producing an empty brief.
             return $provider->isConfigured() ? $provider : new NullAiProvider();
         });
+
+        /**
+         * The tools that exist.
+         *
+         * Registered in code rather than seeded into the database, because a
+         * handler is executable behaviour and a row is not. A blueprint may
+         * declare a tool key that is not in here — the registry refuses it at
+         * execution rather than pretending it ran.
+         *
+         * Every built-in is `circle_write`: reversible, confined to one Circle,
+         * and visible in the same register a person's edits land in. External
+         * writes are a real integration each, and there is no honest way to
+         * ship a generic one.
+         */
+        $this->app->singleton(ToolRegistry::class, fn ($app) => new ToolRegistry([
+            $app->make(PostCommentTool::class),
+            $app->make(CreateGoalTool::class),
+            $app->make(ReportGoalProgressTool::class),
+            $app->make(CreateCommitmentTool::class),
+            $app->make(FlagEvidenceStaleTool::class),
+        ]));
 
         $this->app->singleton(Transcriber::class, function () {
             $config = config('circle.transcription');

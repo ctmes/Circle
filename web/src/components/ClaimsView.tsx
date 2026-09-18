@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api,
+  decodeCiteIntent,
   describeLocator,
   formatDate,
+  type CiteIntent,
   type Claim,
   type EvidenceItem,
+  type Goal,
 } from "../lib/api";
-import { CircleFrame } from "./CircleFrame";
+import { GoalChip, GoalField } from "./GoalPicker";
 import { Discussion } from "./Thread";
 import { DerivedStamp, StatusChip } from "./Trust";
 import {
@@ -27,38 +30,40 @@ import {
  * derived treatment so the difference between "a person asserted this" and
  * "a model inferred this" is visible before the sentence is read.
  */
-export function ClaimsView({ circleId }: { circleId: string }) {
-  return (
-    <CircleFrame circleId={circleId} tab="claims">
-      {(circle) => (
-        <Body
-          circleId={circleId}
-          canCreate={
-            circle?.my_access?.permissions.includes("claim.create") === true && !circle?.is_closed
-          }
-          canReview={
-            circle?.my_access?.permissions.includes("claim.review") === true && !circle?.is_closed
-          }
-        />
-      )}
-    </CircleFrame>
-  );
-}
-
-function Body({
+export function ClaimsBody({
   circleId,
   canCreate,
   canReview,
+  goals,
 }: {
   circleId: string;
   canCreate: boolean;
   canReview: boolean;
+  goals: Goal[];
 }) {
   const [composing, setComposing] = useState(false);
+  const [pinned, setPinned] = useState<CiteIntent | null>(null);
   const { data, error, loading, reload } = useAsync<Claim[]>(
     () => api.get<{ data: Claim[] }>(`/circles/${circleId}/claims`).then((r) => r.data),
     [circleId],
   );
+
+  /*
+    Arriving from "cite this" in search: the evidence and the exact place are
+    already decided, so the composer opens with them attached and the person
+    only has to write the sentence. Read after mount, not during render, so the
+    hydrated markup matches what the server sent.
+  */
+  useEffect(() => {
+    const intent = decodeCiteIntent(new URLSearchParams(window.location.search).get("cite"));
+
+    if (!intent) return;
+
+    setPinned(intent);
+    setComposing(true);
+    // Consumed. A refresh should not re-open a composer they closed.
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
 
   if (loading) return <Panel><Loading what="claims" /></Panel>;
   if (error) return <ErrorNote error={error} />;
@@ -71,7 +76,15 @@ function Body({
     <div className="space-y-5">
       {canCreate && (
         <div className="flex justify-end">
-          <Button variant={composing ? "quiet" : "primary"} onClick={() => setComposing((v) => !v)}>
+          <Button
+            variant={composing ? "quiet" : "primary"}
+            onClick={() =>
+              setComposing((open) => {
+                if (open) setPinned(null);
+                return !open;
+              })
+            }
+          >
             {composing ? "Cancel" : "Make a claim"}
           </Button>
         </div>
@@ -80,8 +93,12 @@ function Body({
       {composing && (
         <ClaimComposer
           circleId={circleId}
+          goals={goals}
+          pinned={pinned}
+          onUnpin={() => setPinned(null)}
           onDone={() => {
             setComposing(false);
+            setPinned(null);
             reload();
           }}
         />
@@ -174,6 +191,7 @@ function ClaimRow({
           </span>
           <span aria-hidden="true">·</span>
           <span>{formatDate(claim.created_at)}</span>
+          <GoalChip goal={claim.goal} circleId={circleId} />
           {claim.confidence !== null && (
             <span
               className="rounded-[var(--r-chip)] bg-[var(--paper-sunk)] px-2 py-0.5 text-[var(--ink-muted)]"
@@ -276,8 +294,25 @@ function ClaimRow({
 /**
  * Composing a claim forces a citation: the evidence picker is part of the form,
  * not an afterthought, and the locator fields change with the media type.
+ *
+ * A `pinned` citation is one that arrived from search already exact. It is
+ * shown rather than re-entered, because a locator retyped by hand is a locator
+ * that can be typed wrong — and the point of the search result was that it
+ * resolves.
  */
-function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => void }) {
+function ClaimComposer({
+  circleId,
+  goals,
+  pinned = null,
+  onUnpin,
+  onDone,
+}: {
+  circleId: string;
+  goals: Goal[];
+  pinned?: CiteIntent | null;
+  onUnpin?: () => void;
+  onDone: () => void;
+}) {
   const { data: evidence } = useAsync<EvidenceItem[]>(
     () => api.get<{ data: EvidenceItem[] }>(`/circles/${circleId}/evidence`).then((r) => r.data),
     [circleId],
@@ -285,6 +320,7 @@ function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => v
 
   const [statement, setStatement] = useState("");
   const [type, setType] = useState("factual");
+  const [goalId, setGoalId] = useState("");
   const [versionId, setVersionId] = useState("");
   const [locator, setLocator] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
@@ -310,16 +346,30 @@ function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => v
     return undefined;
   }
 
+  function citations() {
+    if (pinned) {
+      return [
+        {
+          evidence_version_id: pinned.version_id,
+          citation_type: pinned.citation_type,
+          locator: pinned.locator,
+          excerpt: pinned.excerpt?.slice(0, 2000) || undefined,
+        },
+      ];
+    }
+
+    return versionId ? [{ evidence_version_id: versionId, locator: locatorPayload() }] : [];
+  }
+
   async function submit() {
     setBusy(true);
     setError(null);
     try {
       await api.post(`/circles/${circleId}/claims`, {
         statement,
+        goal_id: goalId || undefined,
         claim_type: type,
-        citations: versionId
-          ? [{ evidence_version_id: versionId, locator: locatorPayload() }]
-          : [],
+        citations: citations(),
       });
       onDone();
     } catch (e) {
@@ -356,26 +406,55 @@ function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => v
             </select>
           </Field>
 
-          <Field label="Evidence cited">
-            <select
-              value={versionId}
-              onChange={(e) => {
-                setVersionId(e.target.value);
-                setLocator({});
-              }}
-              className={inputClass}
-            >
-              <option value="">choose an item…</option>
-              {(evidence ?? [])
-                .filter((e) => e.current_version)
-                .map((e) => (
-                  <option key={e.id} value={e.current_version!.id}>
-                    {e.name} (v{e.current_version!.version_number})
-                  </option>
-                ))}
-            </select>
-          </Field>
+          {pinned ? (
+            <Field label="Evidence cited" hint="Carried from search, so it resolves exactly.">
+              <div className="rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3 py-2 shadow-[inset_0_0_0_1px_var(--rule-strong)]">
+                <p className="mono text-[0.8125rem] font-[600] text-[var(--ink)]">{pinned.label}</p>
+                <p className="mt-0.5 text-xs text-[var(--ink-muted)]">{pinned.source}</p>
+              </div>
+            </Field>
+          ) : (
+            <Field label="Evidence cited">
+              <select
+                value={versionId}
+                onChange={(e) => {
+                  setVersionId(e.target.value);
+                  setLocator({});
+                }}
+                className={inputClass}
+              >
+                <option value="">choose an item…</option>
+                {(evidence ?? [])
+                  .filter((e) => e.current_version)
+                  .map((e) => (
+                    <option key={e.id} value={e.current_version!.id}>
+                      {e.name} (v{e.current_version!.version_number})
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          )}
         </div>
+
+        <GoalField goals={goals} value={goalId} onChange={setGoalId} />
+
+        {pinned && (
+          <div className="rounded-[var(--r-control)] border border-[var(--rule)] px-3.5 py-3">
+            {pinned.excerpt && (
+              <p className="text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+                “{pinned.excerpt}”
+              </p>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Button variant="quiet" onClick={onUnpin}>
+                Cite something else
+              </Button>
+              <span className="text-xs text-[var(--ink-faint)]">
+                The passage is kept with the citation as its excerpt.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* The locator fields follow the media, so the citation can be precise. */}
         {lane === "document" && (
@@ -440,7 +519,7 @@ function ClaimComposer({ circleId, onDone }: { circleId: string; onDone: () => v
           <Button variant="primary" onClick={submit} disabled={busy || !statement.trim()}>
             {busy ? "Recording…" : "Put on the record"}
           </Button>
-          {!versionId && (
+          {!versionId && !pinned && (
             <span className="text-xs text-[var(--ink-muted)]">
               A claim with no citation can be recorded, but it carries no weight.
             </span>

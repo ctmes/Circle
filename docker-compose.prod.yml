@@ -1,0 +1,170 @@
+# Circle — the production shape.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Deliberately a separate file rather than an override of docker-compose.yml.
+# The two differ in almost every line that matters — which process serves, what
+# is exposed, where the source comes from — and a production stack assembled by
+# subtracting from a development one is a stack where forgetting a subtraction
+# is a security incident.
+#
+# What changes from local:
+#   · the API runs under php-fpm behind Caddy, not `artisan serve`
+#   · the web app is built and served by node, not the Astro dev server
+#   · nothing binds a host port except Caddy on 80 and 443
+#   · no source bind mounts; the images carry the code
+#   · Postgres and Redis are reachable only on the internal network
+#
+# Everything else — the schema, the queues, the jobs, the policy layer — is the
+# same code answering the same way, which is the point.
+
+name: circle-prod
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      CIRCLE_DOMAIN: ${CIRCLE_DOMAIN:?set CIRCLE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddy resolves the PHP script path itself, so it needs to see the same
+      # public directory FPM does.
+      - ./api:/app:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    depends_on: [api, web]
+
+  api:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile.fpm
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./api:/app
+      - api_vendor:/app/vendor
+    env_file: [./api/.env]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+
+  worker:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile.fpm
+    restart: unless-stopped
+    working_dir: /app
+    # Horizon runs one supervisor per queue (config/horizon.php), so a long
+    # transcode on `media` no longer delays the password reset queued behind
+    # it on `default`. Hourly worker recycling — what --max-time=3600 used to
+    # do here — is now `maxTime` on each supervisor.
+    command: php artisan horizon
+    # Horizon answers SIGTERM by letting each worker finish the job in hand.
+    # Compose's default 10s would SIGKILL mid-transcode.
+    stop_grace_period: 60s
+    volumes:
+      - ./api:/app
+      - api_vendor:/app/vendor
+    env_file: [./api/.env]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+
+  scheduler:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile.fpm
+    restart: unless-stopped
+    working_dir: /app
+    command: php artisan schedule:work
+    volumes:
+      - ./api:/app
+      - api_vendor:/app/vendor
+    env_file: [./api/.env]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  web:
+    image: node:24-alpine
+    restart: unless-stopped
+    working_dir: /app
+    # Built once at start rather than baked into an image, so a deployment is
+    # `git pull && docker compose up -d` and nothing has to be pushed anywhere.
+    command: sh -c "npm ci --no-audit --no-fund && npm run build && node ./dist/server/entry.mjs"
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4321"
+      # Same origin as the page itself, so the browser never makes a
+      # cross-origin request and CORS never enters into it.
+      PUBLIC_API_URL: https://${CIRCLE_DOMAIN:?set CIRCLE_DOMAIN}/api
+    depends_on: [api]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-circle}
+      POSTGRES_USER: ${POSTGRES_USER:-circle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-circle} -d ${POSTGRES_DB:-circle}"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  # Object storage on the same box. Fine to begin with, and the first thing to
+  # move once the contents matter to somebody other than you: managed storage
+  # makes durability and backups another company's problem. Swapping is a
+  # change to four AWS_* variables and no code.
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  api_vendor:
+  web_node_modules:
+  caddy_data:
+  caddy_config:
+  caddy_logs:

@@ -6,8 +6,10 @@ import {
   type AgentActionRow,
   type AgentBlueprintRow,
   type AgentConnectionRow,
+  type AgentRun,
   type AgentToolRow,
   type Circle,
+  type ToolCatalogueRow,
   type Party,
   type SideEffect,
 } from "../lib/api";
@@ -46,6 +48,7 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
   const canAuthor = perms.includes("agent.author") && !circle?.is_closed;
   const canConnect = perms.includes("agent.connect") && !circle?.is_closed;
   const canApprove = perms.includes("agent.approve") && !circle?.is_closed;
+  const canRun = perms.includes("agent.run") && !circle?.is_closed;
 
   const [building, setBuilding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -153,6 +156,7 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
                     blueprint={b}
                     circleId={circleId}
                     canAuthor={canAuthor}
+                    canRun={canRun && b.is_running_here}
                     onChanged={agents.reload}
                   />
                 ))}
@@ -236,34 +240,12 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
             ) : (
               <ul>
                 {(connections.data ?? []).map((c) => (
-                  <li
+                  <ConnectionRow
                     key={c.id}
-                    className="border-t border-[var(--rule)] px-5 py-3 first:border-t-0"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-[560]">{c.name}</span>
-                      <span
-                        className={`rounded-[var(--r-chip)] px-2 py-0.5 text-xs font-[560] ${
-                          c.is_admitted
-                            ? "bg-[var(--settled-soft)] text-[var(--settled)]"
-                            : "bg-[var(--paper-sunk)] text-[var(--ink-muted)]"
-                        }`}
-                      >
-                        {c.is_admitted ? "Admitted" : c.status}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-[var(--ink-faint)]">
-                      {c.party ?? "—"} · {c.auth_mode.replace(/_/g, " ")}
-                    </p>
-                    {c.fingerprint && (
-                      <p
-                        className="mono mt-1 text-xs text-[var(--ink-faint)]"
-                        title="Approving this agent approves this specific key."
-                      >
-                        {c.fingerprint}…
-                      </p>
-                    )}
-                  </li>
+                    connection={c}
+                    canApprove={canApprove}
+                    onChanged={connections.reload}
+                  />
                 ))}
               </ul>
             )}
@@ -390,6 +372,19 @@ function ActionRow({
         </p>
       )}
 
+      {/*
+        Said before anyone approves rather than after it fails. Putting your
+        name to something that cannot happen is a worse experience than being
+        told it cannot happen.
+      */}
+      {!action.runnable && (
+        <p className="mt-2 rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--signal)]">
+          Nothing stands behind <span className="mono">{action.tool_key}</span> in
+          this build. Approving it records your agreement and then fails — it
+          will not do anything.
+        </p>
+      )}
+
       {!!error && (
         <div className="mt-2">
           <ErrorNote error={error} />
@@ -428,17 +423,20 @@ function AgentRow({
   blueprint,
   circleId,
   canAuthor,
+  canRun,
   onChanged,
 }: {
   blueprint: AgentBlueprintRow;
   circleId: string;
   canAuthor: boolean;
+  canRun: boolean;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [addingTool, setAddingTool] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [lastRun, setLastRun] = useState<AgentRun | null>(null);
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -521,6 +519,30 @@ function AgentRow({
               Put to work
             </Button>
           )}
+          {canRun && !suspended && (
+            <Button
+              variant="primary"
+              disabled={busy}
+              title={
+                blueprint.execution_mode === "read_only"
+                  ? "Reads what it is allowed to and reports back. Writes nothing."
+                  : blueprint.execution_mode === "propose"
+                    ? "Reads, then drafts claims and decision requests for people to review."
+                    : "Reads, drafts, and proposes its tool calls for approval. Nothing runs unasked."
+              }
+              onClick={() =>
+                act(async () => {
+                  const res = await api.post<{ data: AgentRun }>(
+                    `/circles/${circleId}/agents/${blueprint.id}/run`,
+                  );
+                  setLastRun(res.data);
+                  setOpen(true);
+                })
+              }
+            >
+              {busy ? "Running…" : "Run"}
+            </Button>
+          )}
           <button
             onClick={() => setOpen((v) => !v)}
             className="rounded-[var(--r-control)] px-2 py-1 text-xs text-[var(--ink-muted)] hover:bg-[var(--paper-sunk)]"
@@ -538,6 +560,8 @@ function AgentRow({
 
       {open && (
         <div className="mt-3 space-y-3 rounded-[var(--r-control)] bg-[var(--paper-inset)] p-3.5">
+          {lastRun && <RunResult run={lastRun} />}
+
           {/*
             What it can actually do, not what it asked for. A blueprint may
             declare more than its mode allows; only this list is real.
@@ -606,6 +630,115 @@ function AgentRow({
   );
 }
 
+/**
+ * Another party's agent, and the moment somebody accepts it.
+ *
+ * The fingerprint is the point of this row. A counterparty is not agreeing to
+ * "Beam Rail Scheduler" — a name anybody could type — they are agreeing to one
+ * specific key. It is shown at the moment of admission rather than buried in a
+ * details pane for that reason, and the confirmation names it again.
+ */
+function ConnectionRow({
+  connection,
+  canApprove,
+  onChanged,
+}: {
+  connection: AgentConnectionRow;
+  canApprove: boolean;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function act(path: string, body?: unknown) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/agent-connections/${connection.id}/${path}`, body ?? {});
+      onChanged();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const revoked = connection.revoked_at !== null;
+
+  return (
+    <li className="border-t border-[var(--rule)] px-5 py-3 first:border-t-0">
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={`text-sm font-[560] ${revoked ? "text-[var(--ink-faint)] line-through" : ""}`}
+        >
+          {connection.name}
+        </span>
+        <span
+          className={`rounded-[var(--r-chip)] px-2 py-0.5 text-xs font-[560] ${
+            connection.is_admitted
+              ? "bg-[var(--settled-soft)] text-[var(--settled)]"
+              : "bg-[var(--paper-sunk)] text-[var(--ink-muted)]"
+          }`}
+        >
+          {connection.is_admitted ? "Admitted" : revoked ? "Withdrawn" : "Waiting to be admitted"}
+        </span>
+      </div>
+
+      <p className="mt-1 text-xs text-[var(--ink-faint)]">
+        {connection.party ?? "—"} · {connection.auth_mode.replace(/_/g, " ")}
+      </p>
+
+      {connection.fingerprint && (
+        <p
+          className="mono mt-1 text-xs text-[var(--ink-faint)]"
+          title="Admitting this agent admits this specific key, not its name."
+        >
+          {connection.fingerprint}…
+        </p>
+      )}
+
+      {connection.is_admitted && (
+        <p className="mt-1 text-xs text-[var(--ink-faint)]">
+          Admitted by {connection.admitted_by ?? "—"} on{" "}
+          {formatDate(connection.admitted_at)}
+        </p>
+      )}
+
+      {canApprove && !connection.is_admitted && !revoked && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <Button
+            variant="primary"
+            disabled={busy}
+            title="You are accepting this key, not this name. Check it against what the other party told you."
+            onClick={() => act("admit")}
+          >
+            Admit this key
+          </Button>
+        </div>
+      )}
+
+      {canApprove && connection.is_admitted && (
+        <div className="mt-2">
+          <Button
+            variant="danger"
+            disabled={busy}
+            title="Stops the agent. Everything it already did stays in the record."
+            onClick={() => act("revoke")}
+          >
+            Withdraw
+          </Button>
+        </div>
+      )}
+
+      {!!error && (
+        <div className="mt-2">
+          <ErrorNote error={error} />
+        </div>
+      )}
+    </li>
+  );
+}
+
 function ToolLine({ tool }: { tool: AgentToolRow }) {
   return (
     <li className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
@@ -619,7 +752,56 @@ function ToolLine({ tool }: { tool: AgentToolRow }) {
       ) : (
         <span className="text-xs text-[var(--ink-faint)]">runs freely</span>
       )}
+      {!tool.implemented && (
+        <span
+          className="rounded-[var(--r-chip)] bg-[var(--signal-soft)] px-2 py-0.5 text-xs font-[560] text-[var(--signal)]"
+          title="Nothing stands behind this key. The agent can propose it and a person can approve it, and then it will fail."
+        >
+          not built
+        </span>
+      )}
     </li>
+  );
+}
+
+/**
+ * What a run actually did, stated in the terms a person has to check.
+ *
+ * The retrieval counts come first because "what did it read, and what was it
+ * refused" is the question that decides whether the rest of the output means
+ * anything. A brief drawn from two documents when eleven were relevant is not
+ * wrong so much as unmoored, and no summary reveals that about itself.
+ */
+function RunResult({ run }: { run: AgentRun }) {
+  const manifest = run.retrieval_manifest ?? null;
+
+  return (
+    <div className="rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper-raised)] p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="label">Last run</p>
+        <span
+          className={`rounded-[var(--r-chip)] px-2 py-0.5 text-xs font-[560] ${
+            run.status === "completed"
+              ? "bg-[var(--settled-soft)] text-[var(--settled)]"
+              : "bg-[var(--signal-soft)] text-[var(--signal)]"
+          }`}
+        >
+          {run.status}
+        </span>
+        <span className="ml-auto text-xs text-[var(--ink-faint)]">
+          {formatDate(run.finished_at ?? run.started_at, true)}
+        </span>
+      </div>
+
+      {manifest && (
+        <p className="mt-1.5 text-xs text-[var(--ink-faint)]">
+          Read {manifest.retrieved} of {manifest.considered} agent-readable items
+          {manifest.denied > 0 && `, refused ${manifest.denied}`}.
+        </p>
+      )}
+
+      {run.error && <p className="mt-1.5 text-xs text-[var(--signal)]">{run.error}</p>}
+    </div>
   );
 }
 
@@ -769,15 +951,68 @@ function ToolComposer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  const { data: catalogue } = useAsync<ToolCatalogueRow[]>(
+    () => api.get<{ data: ToolCatalogueRow[] }>("/agent-tools/catalogue").then((r) => r.data),
+    [],
+  );
+
+  const built = catalogue ?? [];
+  const picked = built.find((t) => t.key === key) ?? null;
+
   return (
-    <div className="space-y-3 rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper)] p-3.5">
+    <div className="space-y-3 rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper-raised)] p-3.5">
+      {/*
+        The picker comes first because a hand-typed key produces an agent that
+        proposes actions nothing can run — and that failure surfaces only after
+        an approver has already put their name to one.
+      */}
+      <Field
+        label="Which command?"
+        hint="These are the commands this build can actually carry out."
+      >
+        <select
+          value={picked ? key : ""}
+          onChange={(e) => {
+            const found = built.find((t) => t.key === e.target.value);
+            if (!found) {
+              setKey("");
+              setName("");
+              setDescription("");
+              return;
+            }
+            setKey(found.key);
+            setName(found.name);
+            setDescription(found.description);
+            setEffect(found.side_effect);
+          }}
+          className={inputClass}
+        >
+          <option value="">Describe one of my own…</option>
+          {built.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.name} — {t.side_effect.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      {!picked && key !== "" && (
+        <p className="rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--signal)]">
+          Nothing stands behind this key yet. The agent will be able to propose
+          it and a person will be able to approve it, and it will then fail. Use
+          it to describe intent for a tool you are about to build, not for work
+          you need done today.
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Key" hint="lowercase_with_underscores">
           <input
             value={key}
             onChange={(e) => setKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))}
             placeholder="notify_yard"
-            className={`${inputClass} mono !text-sm`}
+            readOnly={picked !== null}
+            className={`${inputClass} mono !text-sm ${picked ? "opacity-60" : ""}`}
           />
         </Field>
         <Field label="Name">
@@ -809,8 +1044,9 @@ function ToolComposer({
       >
         <select
           value={effect}
+          disabled={picked !== null}
           onChange={(e) => setEffect(e.target.value as SideEffect)}
-          className={inputClass}
+          className={`${inputClass} ${picked ? "opacity-60" : ""}`}
         >
           <option value="none">Nothing — it only reads and computes</option>
           <option value="circle_write">It changes something in this Circle</option>
@@ -934,7 +1170,7 @@ function ConnectionComposer({
         />
       </Field>
 
-      <p className="rounded-[var(--r-control)] bg-[var(--paper)] px-3 py-2 text-xs leading-relaxed text-[var(--ink-muted)]">
+      <p className="rounded-[var(--r-control)] bg-[var(--paper-raised)] px-3 py-2 text-xs leading-relaxed text-[var(--ink-muted)]">
         Circle never stores the credential itself — only a reference to it. The
         agent arrives pending, and admitting it is a decision the other parties
         can see.

@@ -1,0 +1,120 @@
+---
+/**
+ * The legal index.
+ *
+ * A procurement team arrives here with a checklist, so the page is a register
+ * rather than a set of cards: document number, name, what it governs, and when
+ * it took effect, in one scan.
+ */
+import Marketing from "../../layouts/Marketing.astro";
+import { SITE } from "../../lib/site";
+
+const documents = [
+  {
+    no: "LEG-01",
+    href: "/legal/terms",
+    title: "Terms of Service",
+    what: "The agreement itself: what the Service is, who owns what, what an agent may do, availability, liability, and what happens when it ends.",
+  },
+  {
+    no: "LEG-02",
+    href: "/legal/privacy",
+    title: "Privacy Policy",
+    what: "What personal information we hold as controller, why, who it goes to, where it is stored, and how to access, correct or complain about it.",
+  },
+  {
+    no: "LEG-03",
+    href: "/legal/dpa",
+    title: "Data Processing Addendum",
+    what: "The processor terms, with the processing details and the technical and organisational measures as annexes. Includes the transfer mechanisms.",
+  },
+  {
+    no: "LEG-04",
+    href: "/legal/subprocessors",
+    title: "Sub-processors",
+    what: "Every third party that can process customer content, what it does and where it sits. Thirty days' notice before this list changes.",
+  },
+  {
+    no: "LEG-05",
+    href: "/legal/acceptable-use",
+    title: "Acceptable Use Policy",
+    what: "What you may not do — including the rules specific to shared workspaces, evidence integrity and agents.",
+  },
+  {
+    no: "LEG-06",
+    href: "/legal/cookies",
+    title: "Cookie Notice",
+    what: "The two things Circle stores in your browser, and the long list of things it does not.",
+  },
+  {
+    no: "LEG-07",
+    href: "/legal/responsible-disclosure",
+    title: "Responsible Disclosure",
+    what: "How to report a security vulnerability, what is in scope, and our safe-harbour undertaking for good-faith research.",
+  },
+];
+---
+
+<Marketing
+  title="Legal"
+  description="Circle's Terms of Service, Privacy Policy, Data Processing Addendum, sub-processor list, Acceptable Use Policy, Cookie Notice and Responsible Disclosure policy."
+  path="/legal"
+>
+  <div class="shell">
+    <header class="max-w-[52ch]">
+      <p class="eyebrow">Legal</p>
+      <h1 class="editorial mt-4 text-[clamp(2.2rem,5vw,3.25rem)] text-[var(--ink)]">
+        The documents, <em>in one place.</em>
+      </h1>
+      <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+        All seven are current as of {SITE.legalEffective}, version {SITE.legalVersion}.
+        Every clause is anchored, so you can link a counterparty to the one you want
+        to discuss. If your procurement process needs something that is not here,
+        ask — it is quicker than guessing.
+      </p>
+    </header>
+
+    <ol class="register mt-14 rule-t">
+      {
+        documents.map((document) => (
+          <li>
+            <a
+              href={document.href}
+              class="group grid items-baseline gap-x-8 gap-y-2 py-6 transition-colors md:grid-cols-[5.5rem_15rem_1fr]"
+            >
+              <span class="fieldno">{document.no}</span>
+              <h2 class="display text-[1rem] font-[620] text-[var(--ink)] group-hover:text-[var(--accent)]">
+                {document.title}
+              </h2>
+              <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+                {document.what}
+              </p>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+
+    <aside class="card mt-16 p-6 md:p-7">
+      <h2 class="display text-[1rem] font-[620] text-[var(--ink)]">
+        Negotiating, or running due diligence?
+      </h2>
+      <p class="mt-2.5 max-w-[62ch] text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+        These are our standard terms. Enterprise customers routinely want to move
+        the liability cap, add a service level agreement, name a specific hosting
+        region, or execute the Data Processing Addendum as a signed counterpart.
+        All four are ordinary requests. Send your redline or your questionnaire to
+        <a
+          href={`mailto:${SITE.email.legal}`}
+          class="underline underline-offset-2"
+          style="color: var(--accent)">{SITE.email.legal}</a
+        > and we will come back with positions rather than silence.
+      </p>
+      <p class="mt-4 max-w-[62ch] text-[0.8125rem] leading-relaxed text-[var(--ink-faint)]">
+        The <a href="/security" class="underline underline-offset-2">security overview</a>
+        answers most of what a standard questionnaire asks, and says plainly which
+        certifications we do not hold.
+      </p>
+    </aside>
+  </div>
+</Marketing>

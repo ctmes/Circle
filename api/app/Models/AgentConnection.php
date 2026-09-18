@@ -45,6 +45,11 @@ class AgentConnection extends Model
         return $this->belongsTo(Circle::class);
     }
 
+    public function admittedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'admitted_by_user_id');
+    }
+
     public function party(): BelongsTo
     {
         return $this->belongsTo(CircleParty::class, 'circle_party_id');

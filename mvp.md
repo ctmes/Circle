@@ -969,7 +969,7 @@ The non-goal in section 3 ("native chat, channels") is narrowed rather than reve
 
 `comment_threads` hang off a goal, claim, decision, commitment or evidence item. A comment may carry an action (`action_type`/`action_id`) or carry nothing. The existing lever-notes become comments of the first kind, so an object's history reads as one conversation rather than two parallel records.
 
-Still not built: a Circle-wide channel. Once a general room exists the substance migrates into it and the structured record decays into something someone updates afterwards out of duty. Object-scoped threads have no "general" to drift into.
+Originally: no Circle-wide channel, on the grounds that once a general room exists the substance migrates into it and the structured record decays into something someone updates afterwards out of duty. Section 22 reverses that, and the reversal is recorded there rather than edited into this paragraph, because the reasoning above was right about what a general room does and wrong only about what refusing one achieves.
 
 Two rules that are load-bearing rather than cosmetic:
 
@@ -999,18 +999,200 @@ What still holds from section 9: an agent has no membership row and cannot inher
 20.5 What this amendment does not yet build
 Named honestly, because the schema now implies them:
 
-No notification transport. `comment_mentions` records who was mentioned and when they were told; nothing sends anything yet. Until it does, the goal tree's deadlines are still state nobody is pushed toward.
-
-No executor. `agent_actions` records proposals and approvals correctly; the runner that takes an approved action and performs it, honouring retries and the idempotency key, is not written.
-
-No party-scoped resource permissions. "Contributors see only their branch of the tree" is a real design question, not a column — today permissions remain Circle-wide plus per-resource overrides.
+No notification transport. `comment_mentions` records who was mentioned and when they were told; mentions are surfaced in-app on Now and in the inbox, but nothing leaves the browser — no email, no push. Until it does, the goal tree's deadlines are still state nobody is pushed toward.
 
 No handoff. Reassigning everything one departing person owns is still a hunt rather than one action.
 
-Closure and export do not yet read the goal tree, the comment threads, or the action ledger. The packet is the product's endpoint and it currently ends at the MVP's objects.
+Closure and export still end at the MVP's objects: the packet does not yet read the goal tree, the threads, or the action ledger. The packet is the product's endpoint and it stops short of the things the amendment added.
 
-No executor UI. The action queue approves and refuses; nothing runs an approved action yet, so `executed` is reachable only from a test.
+No transport for a remotely-hosted party agent. `agent_connections` records the endpoint, the auth mode and the key fingerprint, and admission binds a blueprint and gives it an instance — but nothing signs a webhook or speaks MCP to an agent running on the other party's infrastructure. A party's agent runs today because its *mandate* is authored here and executed by Circle's own model calls under that party's authority, which is the useful half; reaching out to software they host is not built.
 
-No notification transport, still. Mentions are recorded and surfaced in-app on Now and in the inbox, but nothing leaves the browser — no email, no push.
+Only `circle_write` tools have implementations. `ToolRegistry` carries five — comment, create goal, report progress, create commitment, flag evidence stale — all reversible and confined to one Circle. `external_read`, `external_write` and `financial` are classifications the approval rules already honour, with nothing registered under them: a blueprint may declare such a tool, and the registry refuses at execution rather than pretending it ran. Each external tool is a real integration and there is no honest way to ship a generic one.
 
-Closure and export still end at the MVP's objects: the packet does not yet read the goal tree, the threads, or the action ledger.
+20.7 Branches of the plan
+
+The goal tree had one state, and anyone holding `goal.update` changed it in place. Inside one company that is fine. Across companies it is the whole problem: a contractor who believes three dates should move has no way to say so except to move them, and the client finds out afterwards. The negotiation left for email and the tree became a record of who edited last rather than of what was agreed.
+
+A branch is a named set of *proposed* edits, and deliberately not a copy of the tree.
+
+Copying gives you literal git — a parallel world you can look at whole — and it forks every id in it. Comments, claims, commitments and the audit chain all point at goal ids; a duplicated subtree means each of those must answer "which copy?", and merge has to decide whether a comment left on the branch belongs to the surviving node. There is no answer to that which is right more than half the time. `goal_changes` instead points at the real goal, names the field, and carries both the value it wants and the value it was looking at.
+
+That last part is the conflict story. If main moved under an open branch, the change is reported as a conflict and both approval and merge refuse — because the alternative is that somebody signed off on a diff that no longer describes what will happen. `rebase` re-points the recorded base at the plan as it stands and clears every signature, since they were given to a different diff.
+
+**A merge needs agreement from every party the branch touches.** Not the convener's, and not the author's: the companies who will have to do the changed thing. This is the rule `goal_schedule_changes` already encodes for a single date, generalised to a set of edits — a date that can move without the party it lands on agreeing carries no weight, and neither does a plan that can be rewritten the same way. In a Circle the client convened, the client's owner holds every permission there is and still cannot sign for the contractor. Approval reuses the decision machinery, so a merged branch lands in the packet as what it is: a decision several companies signed. `decision_approvals` gained `circle_party_id`, because "Rae approved" does not answer whether Beam Rail did.
+
+Four things that follow, each of which would otherwise be a hole:
+
+Editing a branch after somebody has signed clears the signatures. Carrying them across an edit would let an author add a clause after the counterparty agreed.
+
+A refusal leaves the branch open. A refusal answers a proposal rather than ending one; closing it would teach people not to refuse.
+
+A date moved by a branch still goes through `reschedule()` and lands in `goal_schedule_changes` with its reason. Otherwise a branch is the one route by which a deadline moves with no record of why.
+
+A removal marks the goal abandoned rather than deleting it. Everything that cited it still resolves, and the packet can still say the work existed and was dropped — usually the interesting part.
+
+`goal.branch` and `goal.merge` are separate permissions. A contributor may draft and propose, which is how somebody without authority still gets heard; agreeing binds a company, so it sits with the roles that can bind one — and can be delegated to a named person by §20.6's grants without moving them to that role.
+
+Depth moved from two levels to four (`circle.goals.max_depth`). Principal → package → contractor → subcontractor is four before anybody has padded anything, and a cap that refuses it pushes the real structure into titles like "Beam Rail / bogies / weld inspection". Still a cap: below four, work belongs in a commitment.
+
+20.6 What section 20.5 used to name and no longer does
+Kept rather than deleted, because a spec that quietly stops listing a gap reads as though the gap was never there.
+
+**The executor is written.** `AgentActionService::execute()` always took an injected handler so the ledger could be tested before side effects existed; `AgentExecutor` now resolves the handler from `ToolRegistry`, and approving an action runs it in the same request. The registry refuses a tool whose handler is more consequential than what the approver was shown, so a payment cannot be registered against something declared `circle_write` and collect a reviewer's signature. `circle:sweep-agent-actions` runs every five minutes: it expires proposals nobody answered and drains approvals given while the worker was down.
+
+**Authored agents run.** There was one run entrypoint — the Steward — so a blueprint could be authored, given tools and instantiated, and never invoked. `AgentRunner` generalises what was `CircleSteward`'s private machinery over any instance; the Steward is now a mandate and a prompt sitting on top of it. `AuthoredPrompt` fences the customer's mandate inside a sentinel it cannot terminate, states the platform rules after it, and names evidence as data rather than instruction — necessary because a shared Circle's agent reads uploads from the counterparty. The party an action runs for is resolved from the blueprint's owning organisation and is not expressible in the output schema, so an agent cannot move liability onto a company that never agreed to carry it.
+
+**Admission is reachable.** Connections were written at `pending` and nothing ever moved them, so `isAdmitted()` could not return true. `AgentConnectionService::admit()` writes `admitted_at` behind an owner's signature, refuses the agent's own party where a counterparty exists, and records a `Decision` naming the accepted fingerprint so the packet carries who let the agent in. Withdrawal disables the instance and leaves everything it did in the record.
+
+**Per-user grants are reachable.** `role_grants` had been read by AccessGate since the first migration and written by nothing, so the only way to let a contributor author an agent was to make them an owner. `DelegationService` writes them under two rules: nobody can grant what they do not hold, and the convening owner cannot be denied membership control or closure.
+
+**Party-scoped resource permissions exist.** `resource_access_overrides` gained `circle_party_id`, and the gate applies the narrowest match — named user, then their party, then the resource as a whole. A resource-wide deny plus a party allow expresses "only this company sees it"; a party deny plus a user allow expresses "nobody at that company except the one person we agreed on".
+
+**Every party's agents are visible.** The studio scoped blueprints to the convener's organisation, so a contractor's own agents did not appear in a Circle they were a party to. It now lists the agents of every party, an agent is authored under its author's organisation rather than the convener's, and only its author may edit it — the client can refuse a contractor's agent or throw it out, but cannot quietly widen its mandate and leave the contractor carrying what it does.
+
+21. Amendment — Open Work, Engagements and the Portable Record
+Why this changes
+
+Section 20 made a Circle span several companies. It did not answer where the counterparty comes from, on what terms they are there, or what either side carries away.
+
+Today a party is written into a plan by someone who already knows who to write. The commercial relationship is a `party_role` string — "contractor" — with no rate, no term, no scope and no end. And everything of value a party produces inside a Circle (a met commitment, a merged branch, a counterparty's signature) is exported to a packet at closure and then ceases to exist as far as the platform is concerned.
+
+That last one is the load-bearing gap. The MVP's founding premise is that a Circle **ends when the mission does**. For an operating environment that is right. For a place where companies engage temporary people and agents it is fatal: nothing compounds, every engagement starts from zero, and the platform holds no reason for either side to come back.
+
+Section 21 adds one durable layer *above* the Circle and three objects inside it. It does not reverse §20; it is what §20 implies once the counterparty is not already known.
+
+The shape being borrowed is deliberate. A code host is four separable things: a durable artifact you return to and fork, a proposal-and-review protocol over it, a work history that follows the worker rather than the employer, and automation as a principal acting inside the same review protocol. §20.7 built the second of those and built it stronger than the original — a merge needs the signature of every party the diff lands on, not a maintainer's. §20.4 built the fourth. §21 builds the first and the third, and connects them to money and time.
+
+21.1 Open work is a posting; applying is a branch
+
+`goals.responsible_party_id` names the company answerable for a node. A node with nobody named is not a defect in the plan — it is work somebody has to be found for, and it is the only thing in the product that a person outside the Circle has any business seeing.
+
+`work_openings` is that posting. It points at a goal where one exists, and stands alone where the plan has not been drawn yet — a Circle still being scoped can post before it has a tree. The opening carries what the goal cannot: `principal_kind` (`human`, `agent`, `either`), a fee basis and amount, a term, a closing date, and a visibility.
+
+Applying is a `goal_branch`. This is the point of the design rather than a convenience: a proposal to do the work *is* a proposal to edit the plan — assign this goal to my company, and while we are here, these two dates need to move. §20.7's machinery then does the rest without modification. The base snapshot means an applicant who drafted against a plan that has since changed is told so rather than silently overwriting it. Editing after a signature clears the signature, which is exactly the right rule for a negotiated rate. And a refusal leaves the branch open, so a counter-offer is a narrowing rather than a resurrection.
+
+`work_applications` carries the half a branch cannot: the offer. Fee, availability, a statement, and the principal — a user, or an agent blueprint version. The branch says what would change; the application says on what terms.
+
+**The exception this creates, stated plainly.** §15's rule is that nothing is reachable except through a Circle the caller belongs to. An opening breaks it, and is the only thing that does. The break is bounded in the schema rather than in a controller: an opening exposes its own columns and the *title* of its goal, and nothing else — no tree, no evidence, no parties beyond the posting one, no threads. An applicant sees a job, not a project.
+
+**Admission is a separate act from application.** Applying grants nothing. `shortlist()` admits the applicant's organisation as a party and issues a membership scoped to the opening's subtree — an owner's decision, audited, and refusable. Only then can the applicant open the branch that would assign them the work. The sequence is: apply outside, be shortlisted in, propose, both parties sign, engaged. A company that receives forty applications exposes its Circle to none of them.
+
+**Awarding is a merge.** `award()` merges the assignment branch under §20.7's unchanged rule, which means the posting party and the applicant's party both signed. It then writes the engagement. There is no separate "accept" that could land an assignment nobody agreed to.
+
+21.2 An engagement is the temp contract, and it bounds the gate
+
+`engagements` sits between a party and the work: an engaging party, a contractor party, a principal (a user or an agent instance), a scope, a fee basis, a term, and a status.
+
+Fee basis is `fixed`, `hourly`, `daily`, `per_deliverable` or `per_action`. The last exists because an agent's unit of work is an approved action and `agent_actions` is already the meter — §20.4 wrote the ledger before anybody thought of billing from it, and it turns out to be the right shape.
+
+Two things make this more than a record.
+
+**Scope and term are enforced in AccessGate, not described in a contract.** A membership issued by an engagement carries `engagement_id`, and the gate intersects that member's permissions with the engagement's state: an engagement that has not started, has ended, or has been suspended or terminated denies every write; and where the engagement names a scope goal, writes are confined to that subtree. "Temp" is a property of the authorisation decision or it is marketing. The check runs as (7), after everything in §10, because an engagement can only ever narrow — never widen — what the role already permits.
+
+**Ending is a state with a reason, not a deletion.** `completed`, `terminated` and `expired` are different facts about the same person leaving, and the record must be able to tell them apart in a year. Termination carries a reason and the party that terminated. Nothing the principal did is removed; §20.7's rule that a removal abandons rather than deletes applies to people too.
+
+Agreement reuses the decision machinery. An engagement is a thing two companies signed, so it lands in the packet as one.
+
+Deliverables are `commitments` with an `engagement_id`. No new object: a commitment already has an owner party, an acceptance condition, a due date and an update trail, which is a deliverable in every respect that matters. Accepting the commitment is what closes the fee obligation, and is the hook a payment tool would hang from.
+
+**Money is not moved.** `financial` remains a `side_effect` classification with nothing registered under it (§20.5). An engagement records what is owed and what was accepted; escrow, invoicing and settlement are not built, and the schema says so by holding an amount and a currency and no transaction anywhere.
+
+21.3 The record is portable, counterparty-attested, and hash-chained on its own
+
+Everything a principal does inside a Circle is currently scoped to `circle_id` and ends at the packet. `work_records` is the durable layer: one row per principal per engagement, written when the engagement ends and when the Circle closes.
+
+It is compiled from the audit chain rather than reported: commitments owned and how many were met, met late, or never; branches proposed, merged and refused; agent actions proposed, approved and refused; deliverables accepted; the outcome. The interesting numbers are the unflattering ones — an agent that keeps proposing actions its counterparty refuses is the thing a hirer most needs to see, and it is already in the ledger.
+
+Three properties, each of which is the reason the record is worth anything:
+
+**It is attested by the counterparty, not by its subject.** The engaging party signs; the contractor cannot write their own. A signature from a company that was paying for the work and is not the worker's employer is a materially different claim from a self-declared skill list, and it is the one thing a cold-start marketplace cannot manufacture.
+
+**It has its own hash chain.** `record_hash = SHA256(canonical_json(record) + previous_hash)`, chained per principal rather than per Circle — the same construction as §11 and deliberately a *separate* chain, so a record verifies without the Circle it came from, which may be closed, exported and gone. The same honesty applies as in §11: this is tamper evidence for the application's own stream, not an independently anchored ledger.
+
+**Publication is per record and the numbers are not editable.** A principal chooses which records are visible to whom; they cannot choose what a visible record says. Hiding a bad engagement is allowed, and a gap in a chain of otherwise-published records is itself legible — which is the correct trade against the alternative, where nobody ever agrees to be measured.
+
+Agents get records on the same terms as people. `principal_type` is `user`, `organisation` or `agent_blueprint`. An agent's verified execution history across companies that are not its author's is the primitive nothing else in the market currently has, and it falls out of the ledger §20.4 already writes.
+
+21.4 A work package is the durable artifact
+
+The Circle is ephemeral by design and must stay that way; making it forkable would fight §1. The thing worth keeping is the *plan* — the shape of a bid review, a mobilisation, a rail access package — and that shape is currently redrawn by hand every time, or copied by whoever remembers the last one.
+
+`work_packages` is a goal tree with the Circle removed: nodes with titles, descriptions, acceptance conditions and *offsets* rather than dates, so instantiating one against a start date produces a schedule. `capture()` takes it from a Circle; `instantiate()` writes it into one; `fork()` copies it to another organisation and records `forked_from_id`, so where a shape came from is answerable.
+
+Deliberately not carried across: evidence, claims, decisions, threads, parties and every id. A package is a form, not a copy of somebody's project — and a template that dragged the last client's structure into the next one is a confidentiality incident, not a feature.
+
+21.5 Discovery is a network before it is a market
+
+A public board fights the gate that the rest of the product is built on, and a marketplace with a public board and nothing else is a cold-start problem with a UI.
+
+Visibility on an opening is `party`, `circle`, `network` or `public`, and defaults to **network** — the organisations you have already completed an engagement with. `organisation_relationships` records that, derived from engagements rather than declared, so the network is a fact about work done rather than a list somebody curated.
+
+This is the point at which the product becomes two-sided, and it is sequenced last among the visibilities for that reason: `network` is worth something only once §21.3 has given the principals on the other side a record worth reading. A public tier exists and is opt-in per opening.
+
+21.6 Blueprint versions, and hiring an agent
+
+§20.4 made agents authorable and executable within one organisation's Circles. Hiring one across companies needs two things it does not have.
+
+**A version you can bind to.** `agent_blueprint_versions` is an immutable snapshot of a mandate, its declared tools and its prompt version. An engagement names a version, not a blueprint, so an author cannot widen the mandate of an agent a counterparty is already paying for — which is §20.6's "only its author may edit it" carried into a commercial relationship where editing it silently would be worth money.
+
+**A meter.** `engagement_meter_entries` records one row per billable unit against an engagement, written when an action is *approved and executed* rather than when it is proposed — an agent does not get paid for asking. For `per_action` engagements this is written from the existing ledger; for the others the meter is empty and the fee is the fee.
+
+The liability rule from §20.4 is untouched and is what makes this coherent: an agent acts for the organisation that authored it. Hiring one does not move that. The engagement names the author's organisation as the contractor party, so an agent's mistakes land on the company that wrote it and are paid for by the company that hired it — which is the same arrangement as hiring any other contractor, and the reason it needs no new liability story.
+
+21.7 What this amendment does not build
+
+Named for the same reason §20.5 named its own gaps.
+
+**No money movement.** Amounts, currencies, bases and accepted deliverables — no invoice, no escrow, no settlement, no payment tool registered under the `financial` classification. Every fee in this section is a number two parties agreed on and a record of what was delivered against it.
+
+**No identity verification.** An organisation is whatever `circle:provision-org` was told it is. A record attested by a counterparty is only as good as the counterparty being who they say, and nothing here checks that.
+
+**No search or matching.** Discovery answers "which openings may this person see". It does not rank them, match them to a record, or notify anybody — and §20.5's missing notification transport bites hardest here, because an opening nobody is told about is an opening nobody applies to.
+
+**No cross-instance federation.** A record is portable within one deployment. Carrying it to another Circle installation would need the chain to verify against a key the receiving side trusts, and no key is published.
+
+**The remote agent transport is still absent.** §20.5 said nothing signs a webhook or speaks MCP to a party-hosted agent, and that is still true. A blueprint version can be hired and metered; it runs under Circle's own model calls with its author's authority. Renting a mandate is real; renting software somebody else operates is not built.
+
+22. Amendment — The general room, and filing what lands in it
+
+§20.3 refused a Circle-wide channel. The reasoning was that once a general room exists the substance migrates into it and the structured record decays into something somebody updates afterwards out of duty, and that object-scoped threads have no "general" to drift into.
+
+That is right about what a general room does. It is wrong about what refusing one achieves, and the error is visible the first time somebody actually uses the product rather than demonstrates it.
+
+Work does not begin with an object. It begins with a question — are we bidding this, can you send last year's scope, who is covering the rail possession — asked before there is a goal, a claim or a decision for it to hang on. A product with nowhere to ask that does not prevent the question being asked. It sends the question to email, and the answer follows it there, and so does everything the two of them then agree. The structured record §20.3 was protecting is lost anyway, to a place with no visibility rules, no export semantics and no audit chain at all. The non-goal did not buy the discipline it was purchased for; it bought the appearance of it.
+
+So the room exists, and the original objection is answered rather than overruled.
+
+22.1 A thread may hang off the Circle
+
+`comment_threads.subject_type` accepts `circle`, with the Circle as its own `subject_id`. That is not a schema concession — it means every query, every visibility rule and every export path that already reads those two columns keeps working untouched, and a general thread is not a second kind of object with a second set of rules.
+
+Everything §20.3 made load-bearing is unchanged. Visibility still defaults to `party`, so the general room is not a place where a contractor accidentally works out its position in front of the client. Export inclusion is still per comment. Mentions still resolve against the thread's actual readership.
+
+22.2 A general thread must be named
+
+`comment_threads.title`, required for a circle-scoped thread and null for every other kind, because an object-scoped thread is named by the object it hangs on and two sources of truth for what a conversation is called is how they come to disagree.
+
+This is the first half of the answer. The room §20.3 feared is one undifferentiated log; a list of named topics is a table of contents. The cost of requiring a subject line is one field, and it is the difference between a record somebody can scan and a transcript nobody reads.
+
+22.3 Drift is made recoverable rather than prevented
+
+`attachTo()` moves a general thread onto a goal, claim, decision, commitment or evidence item, recording `attached_at` and `attached_by_user_id`.
+
+This is the load-bearing half, and it is the actual answer to §20.3. Substance *will* migrate into the general room — that prediction was correct and no interface can stop it. What an interface can do is make the migration reversible. The whole conversation moves, with every comment, every mention and every on-record marking intact, because none of that ever lived on the subject. "The record decays" stops being a property of the design and becomes a chore somebody can do in one action.
+
+Three constraints, each for a reason:
+
+One direction. A thread already about a decision is not general, and shuffling settled conversation between objects is the decay this exists to undo.
+
+The target must be in the same Circle, checked rather than trusted, or a thread would name an object nobody who can read it is able to see.
+
+Filing needs `CommentModerate`, not `CommentCreate`. Re-filing somebody else's conversation changes where it appears for everyone who can read it, and that is a different act from taking part in it.
+
+The move is audited as `comment.thread_attached`, and the packet carries `attached_from_general` on any thread that arrived this way — because a decision whose conversation began as a question nobody had filed yet is a true and useful thing to know about how the decision was reached.
+
+22.4 What this does not build
+
+No Circle-wide channel in the chat sense: no presence, no typing indicators, no unread counts beyond the existing mention inbox, no direct messages between two people. A thread is still a thread — it is opened, replied to, resolved, and it sits in a list.
+
+No automatic filing. Nothing guesses which goal a conversation is about. A suggestion that is wrong half the time would be worse than the control, because the control is one click and a wrong guess is a conversation filed somewhere nobody looks.

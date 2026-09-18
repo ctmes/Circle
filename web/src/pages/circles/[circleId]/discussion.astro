@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { DiscussionView } from "../../../components/DiscussionView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Discussion">
+  <DiscussionView client:load circleId={circleId!} />
+</Base>

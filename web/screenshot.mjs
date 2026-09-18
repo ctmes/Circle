@@ -64,14 +64,18 @@ const circle = circles.data.find((c) => !c.is_closed) ?? circles.data[0];
 console.log(`  using Circle ${circle.id} (${circle.is_closed ? "closed" : "open"})`);
 
 const views = [
-  ["03-now", "", "h1"],
+  ["03-plan", "", "h1"],
   ["04-context", "/context", "table, ul"],
-  ["05-claims", "/claims", "section"],
-  ["06-decisions", "/decisions", "section"],
-  ["07-commitments", "/commitments", "section"],
-  ["08-people", "/people", "table"],
-  ["09-history", "/history", "section"],
-  ["10-export", "/export", "section"],
+  ["05-record", "/record", "section"],
+  // The three routes Record replaced. They still resolve, each opening on its
+  // own segment, and walking them here is what keeps that true: every link
+  // already written into the product points at one of them.
+  ["06-record-claims", "/claims", "section"],
+  ["07-record-decisions", "/decisions", "section"],
+  ["08-record-commitments", "/commitments", "section"],
+  ["09-people", "/people", "table"],
+  ["10-history", "/history", "section"],
+  ["11-export", "/export", "section"],
 ];
 
 for (const [name, path, waitFor] of views) {
@@ -93,8 +97,8 @@ await darkPage.evaluate((t) => localStorage.setItem("circle.token", t), token);
 await darkPage.goto(`${WEB}/circles/${circle.id}/context`, { waitUntil: "networkidle" });
 await darkPage.evaluate(() => document.fonts.ready);
 await darkPage.waitForTimeout(600);
-await darkPage.screenshot({ path: `${OUT}/11-context-dark.png`, fullPage: true });
-console.log("  captured 11-context-dark");
+await darkPage.screenshot({ path: `${OUT}/12-context-dark.png`, fullPage: true });
+console.log("  captured 12-context-dark");
 
 await browser.close();
 

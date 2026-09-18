@@ -5,6 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Enums\Permission;
 use App\Models\AgentRun;
 use App\Models\Circle;
+use App\Models\AgentBlueprint;
+use App\Models\AgentInstance;
+use App\Services\Agent\AgentRunner;
+use App\Services\Agent\AuthoredPrompt;
 use App\Services\Agent\CircleSteward;
 use App\Services\Agent\StewardPrompt;
 use App\Services\Authorisation\AccessGate;
@@ -18,7 +22,88 @@ class AgentController extends Controller
     public function __construct(
         private readonly AccessGate $gate,
         private readonly CircleSteward $steward,
+        private readonly AgentRunner $runner,
     ) {}
+
+    /**
+     * Run an authored agent.
+     *
+     * Until this existed there was exactly one way to run anything — the
+     * Steward — so the studio could author a blueprint, declare its tools and
+     * instantiate it, and then offer no way to invoke it. An authored agent was
+     * a document about an agent.
+     *
+     * The blueprint arrives as a route parameter and the prompt is assembled
+     * from it here, rather than being stored anywhere the model could reach.
+     * Everything else — the gate checks, the retrieval manifest, the citation
+     * validator, the ledger — is the same code path the Steward takes, which is
+     * the only reason it is safe to let customers point it at their own text.
+     */
+    public function run(Request $request, Circle $circle, AgentBlueprint $blueprint): JsonResponse
+    {
+        $data = $request->validate([
+            'open_questions'   => ['nullable', 'array'],
+            'open_questions.*' => ['string', 'max:500'],
+        ]);
+
+        abort_if(
+            $blueprint->isCircleScoped() && $blueprint->circle_id !== $circle->id,
+            422,
+            'That agent was authored for a different Circle.',
+        );
+
+        // A blueprint belonging to no party here has no business running here,
+        // even if somebody knows its id.
+        abort_unless(
+            $blueprint->is_system
+                || $blueprint->circle_id === $circle->id
+                || $this->blueprintBelongsToAParty($circle, $blueprint),
+            403,
+            'That agent belongs to an organisation with no seat in this Circle.',
+        );
+
+        $instance = AgentInstance::firstOrCreate(
+            ['agent_blueprint_id' => $blueprint->id, 'circle_id' => $circle->id],
+            ['status' => 'active'],
+        );
+
+        // Relations the runner and the gate both read; loading them here keeps
+        // the hot path out of lazy loads inside a transaction.
+        $instance->setRelation('blueprint', $blueprint);
+        $instance->setRelation('circle', $circle);
+
+        try {
+            $run = $this->runner->run(
+                agent: $instance,
+                triggeredBy: $request->user(),
+                prompt: new AuthoredPrompt($blueprint, $blueprint->tools()->get()->all()),
+                openQuestions: $data['open_questions'] ?? [],
+                runType: 'authored_run',
+            );
+        } catch (HttpException $e) {
+            throw $e;
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'data'    => ['status' => 'failed'],
+            ], 502);
+        }
+
+        return response()->json([
+            'data' => $this->present($run->load('resourceAccesses', 'instance.blueprint')),
+        ], 201);
+    }
+
+    private function blueprintBelongsToAParty(Circle $circle, AgentBlueprint $blueprint): bool
+    {
+        return $blueprint->organisation_id !== null
+            && (
+                $blueprint->organisation_id === $circle->organisation_id
+                || $circle->parties()
+                    ->where('organisation_id', $blueprint->organisation_id)
+                    ->exists()
+            );
+    }
 
     /** Runs the Steward and returns the sourced brief it produced. */
     public function stewardBrief(Request $request, Circle $circle): JsonResponse

@@ -1,0 +1,211 @@
+---
+/**
+ * Contact / request a pilot.
+ *
+ * There is no form backend, and rather than pretend otherwise the form composes
+ * a pre-filled email in the sender's own client. That is honest about where the
+ * message goes, keeps every enquiry out of a third party's database, and needs
+ * no sub-processor entry. When a real endpoint exists, replace the submit
+ * handler and delete this comment — the markup will not need to change.
+ */
+import Marketing from "../layouts/Marketing.astro";
+import { SITE } from "../lib/site";
+
+const fieldClass =
+  "mt-1.5 w-full rounded-[var(--r-control)] bg-[var(--paper-raised)] px-3 py-2.5 text-[0.9375rem] text-[var(--ink)] shadow-[inset_0_0_0_1px_var(--rule-strong)] placeholder:text-[var(--ink-faint)] focus:shadow-[inset_0_0_0_1px_var(--accent)] focus:outline-none";
+
+const expect = [
+  ["A reply within two business days", "From a person who has read what you wrote, not an autoresponder with a calendar link."],
+  ["A call about your project, not a demo", "The useful question is what the last contested handover cost you, and whether a Circle would have changed it. If the answer is no, that is a fine outcome for one call."],
+  ["A scoped pilot document", "One real mission, a defined closure date, named parties, and the commercial terms agreed before anything is uploaded."],
+  ["Your data back, whatever you decide", "At the end you keep the export packet and every original you put in. That is in the Terms, not just on this page."],
+];
+---
+
+<Marketing
+  title="Contact"
+  description="Request a Circle pilot, ask a commercial question, or send a security questionnaire. A reply within two business days, from someone who has read what you wrote."
+  path="/contact"
+>
+  <div class="shell">
+    <div class="grid gap-14 lg:grid-cols-[1fr_1fr] lg:gap-16">
+      {/* ------------------------------------------------------------- copy */}
+      <div>
+        <p class="eyebrow">Contact</p>
+        <h1 class="editorial mt-4 text-[clamp(2.2rem,5vw,3.25rem)] text-[var(--ink)]">
+          Bring the project <em>you are already worried about.</em>
+        </h1>
+        <p class="mt-6 text-[1.0625rem] leading-relaxed text-[var(--ink-muted)]">
+          Circle is best judged against a live cross-company mission with a real
+          closure date and a counterparty who does not report to you. A hypothetical
+          will not tell you anything.
+        </p>
+
+        <dl class="register mt-10 rule-t">
+          {
+            expect.map(([label, detail]) => (
+              <div class="py-5">
+                <dt class="display text-[0.9375rem] font-[620] text-[var(--ink)]">{label}</dt>
+                <dd class="mt-1.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+                  {detail}
+                </dd>
+              </div>
+            ))
+          }
+        </dl>
+
+        <div class="mt-10 grid gap-4 sm:grid-cols-2">
+          <div>
+            <p class="label">Commercial</p>
+            <a
+              href={`mailto:${SITE.email.sales}`}
+              class="mt-1 block text-[0.875rem] underline underline-offset-2"
+              style="color: var(--accent)">{SITE.email.sales}</a
+            >
+          </div>
+          <div>
+            <p class="label">Security questionnaires</p>
+            <a
+              href={`mailto:${SITE.email.security}`}
+              class="mt-1 block text-[0.875rem] underline underline-offset-2"
+              style="color: var(--accent)">{SITE.email.security}</a
+            >
+          </div>
+          <div>
+            <p class="label">Privacy requests</p>
+            <a
+              href={`mailto:${SITE.email.privacy}`}
+              class="mt-1 block text-[0.875rem] underline underline-offset-2"
+              style="color: var(--accent)">{SITE.email.privacy}</a
+            >
+          </div>
+          <div>
+            <p class="label">Contracts and redlines</p>
+            <a
+              href={`mailto:${SITE.email.legal}`}
+              class="mt-1 block text-[0.875rem] underline underline-offset-2"
+              style="color: var(--accent)">{SITE.email.legal}</a
+            >
+          </div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------- form */}
+      <div>
+        <form id="pilot-form" class="card p-6 md:p-7" data-to={SITE.email.sales}>
+          <h2 class="display text-[1.0625rem] font-[620] text-[var(--ink)]">
+            Request a pilot
+          </h2>
+          <p class="mt-2 text-[0.8125rem] leading-relaxed text-[var(--ink-faint)]">
+            This composes an email in your own mail application. Nothing is sent
+            from this page, and nothing is stored by it.
+          </p>
+
+          <div class="mt-6 space-y-4">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block">
+                <span class="label">Your name</span>
+                <input name="name" required autocomplete="name" class={fieldClass} />
+              </label>
+              <label class="block">
+                <span class="label">Work email</span>
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  autocomplete="email"
+                  class={fieldClass}
+                />
+              </label>
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block">
+                <span class="label">Organisation</span>
+                <input name="organisation" required autocomplete="organization" class={fieldClass} />
+              </label>
+              <label class="block">
+                <span class="label">Your role</span>
+                <input name="role" autocomplete="organization-title" class={fieldClass} />
+              </label>
+            </div>
+
+            <label class="block">
+              <span class="label">The project</span>
+              <textarea
+                name="project"
+                rows="4"
+                required
+                placeholder="What is the mission, who are the other companies involved, and when does it need to close?"
+                class={fieldClass}></textarea>
+            </label>
+
+            <label class="block">
+              <span class="label">What goes wrong today</span>
+              <textarea
+                name="pain"
+                rows="3"
+                placeholder="Optional, and the most useful thing you can tell us."
+                class={fieldClass}></textarea>
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn-primary mt-6 w-full">
+            Compose the email
+          </button>
+
+          <p class="mt-4 text-[0.75rem] leading-relaxed text-[var(--ink-faint)]">
+            We use what you send only to answer you and, if it goes further, to run
+            the pilot. See the <a
+              href="/legal/privacy"
+              class="underline underline-offset-2">Privacy Policy</a
+            >.
+          </p>
+
+          <noscript>
+            <p class="mt-4 text-[0.8125rem] leading-relaxed" style="color: var(--signal)">
+              This form needs JavaScript to open your mail application. Write to
+              {SITE.email.sales} instead — the same details are useful.
+            </p>
+          </noscript>
+        </form>
+      </div>
+    </div>
+  </div>
+</Marketing>
+
+<script>
+  /*
+    Compose rather than submit. `encodeURIComponent` on every field keeps line
+    breaks and punctuation intact through the mailto URL, and the form is left
+    populated so a long answer is not lost if the mail client fails to open.
+  */
+  const form = document.getElementById("pilot-form") as HTMLFormElement | null;
+
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const data = new FormData(form);
+    const value = (key: string) => String(data.get(key) ?? "").trim();
+
+    const subject = `Pilot request — ${value("organisation") || "Circle"}`;
+
+    const body = [
+      `Name: ${value("name")}`,
+      `Email: ${value("email")}`,
+      `Organisation: ${value("organisation")}`,
+      `Role: ${value("role") || "—"}`,
+      "",
+      "The project",
+      value("project"),
+      "",
+      "What goes wrong today",
+      value("pain") || "—",
+    ].join("\n");
+
+    const to = form.dataset.to ?? "";
+    window.location.href = `mailto:${to}?subject=${encodeURIComponent(
+      subject,
+    )}&body=${encodeURIComponent(body)}`;
+  });
+</script>

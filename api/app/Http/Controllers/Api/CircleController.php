@@ -85,15 +85,20 @@ class CircleController extends Controller
             'expires_at' => ['sometimes', 'nullable', 'date'],
             'status'     => ['sometimes', 'string', 'in:draft,active,closing'],
             'progress'   => ['sometimes', 'integer', 'between:0,100'],
+            // Optional, and worth asking for: a renamed mission is the kind of
+            // change somebody reads back six months later and wants a why for.
+            'reason'     => ['sometimes', 'nullable', 'string', 'max:1000'],
         ]);
 
-        // Progress is an audited assertion about the mission, so it goes
-        // through the service rather than being mass-assigned with the rest.
+        // Nothing here is mass-assigned. What the mission is called, what it
+        // says it is for and when it ends are all assertions somebody makes on
+        // the record, so each one goes through the service and onto the chain.
         $progress = $data['progress'] ?? null;
-        unset($data['progress']);
+        $reason   = $data['reason'] ?? null;
+        unset($data['progress'], $data['reason']);
 
         if ($data !== []) {
-            $circle->fill($data)->save();
+            $circle = $this->circles->updateDetails($circle, $request->user(), $data, $reason);
         }
 
         // A closed Circle never reaches here — the gate refuses every mutation

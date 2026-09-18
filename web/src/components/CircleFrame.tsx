@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { api, clearToken, relativeDays, type Circle } from "../lib/api";
 import { CircleMeter, CircleMeterControl } from "./CircleMeter";
+import { MissionStatement } from "./MissionStatement";
 import { ErrorNote, forgetCached, useAsync } from "./ui";
 import { ThemeToggle } from "./ThemeToggle";
 import { Wordmark } from "./Wordmark";
@@ -15,20 +16,39 @@ import { Wordmark } from "./Wordmark";
 */
 const TAB_GROUPS = [
   [
-    { key: "", label: "Now" },
-    { key: "work", label: "Work" },
+    // The tree lands first. It is the only screen that says what the mission
+    // *is*; everything else reports on parts of it, and opening a Circle onto a
+    // status summary meant the shape of the work was a click away from being
+    // the thing you never looked at.
+    //
+    // "Plan", not "Work": the chrome above carries a link to /work, which is a
+    // different destination entirely, and the two sat a few pixels apart under
+    // the same word. The view already calls itself "The plan" in its heading.
+    { key: "", label: "Plan" },
+    { key: "now", label: "Now" },
+    // Sits beside Now rather than with the record, because that is what it is:
+    // what is live and unfiled, as against what has been settled. §20.3
+    // refused this tab; the answer to its objection is the "file against"
+    // control inside it, not the absence of the tab.
+    { key: "discussion", label: "Discussion" },
     { key: "agents", label: "Agents" },
     { key: "context", label: "Context" },
   ],
   [
-    { key: "claims", label: "Claims" },
-    { key: "decisions", label: "Decisions" },
-    { key: "commitments", label: "Commitments" },
+    // Was three tabs. They are three shapes of one thing — what this mission
+    // has put on the record — and as peers in the bar they read as three
+    // separate places to go and look. The segmented control inside sorts them
+    // out in the one place a person is already standing; the old three routes
+    // still resolve, each opening on its own segment.
+    { key: "record", label: "Record" },
   ],
   [
     { key: "people", label: "People" },
+    // Hiring sits with People rather than with the work, because that is what
+    // it is: deciding who is in the room. The contracts it writes are what
+    // bound them once they are (spec §21.2).
+    { key: "hiring", label: "Hiring" },
     { key: "history", label: "History" },
-    { key: "export", label: "Export" },
   ],
 ] as const;
 
@@ -63,7 +83,7 @@ export function CircleFrame({
   const { data: circle, error, mutate } = useAsync<Circle>(
     () => api.get<{ data: Circle }>(`/circles/${circleId}`).then((r) => r.data),
     [circleId],
-    // Identical on all ten tabs, so it is fetched once per browsing context
+    // Identical on every tab, so it is fetched once per browsing context
     // and re-read in the background afterwards.
     { cacheKey: `circle:${circleId}` },
   );
@@ -78,12 +98,27 @@ export function CircleFrame({
     );
   }
 
-  // The header meter is settable by whoever may already manage this Circle;
-  // everyone else reads it. Gating on the permission the PATCH itself requires
-  // means the control is never offered and then refused.
-  const canSetProgress =
+  // The header meter and the mission statement are both settable by whoever
+  // may already manage this Circle; everyone else reads them. Gating on the
+  // permission the PATCH itself requires means the controls are never offered
+  // and then refused — and a closed Circle offers neither, because its record
+  // is the one it closed with.
+  const canManage =
     circle?.my_access?.permissions.includes("circle.manage_members") === true &&
     !circle.is_closed;
+
+  // Building the packet and closing the Circle are end-of-mission acts taken
+  // once, by one or two people. As a permanent tab they spent a slot in an
+  // already-crowded bar on a screen most members could not act on at all. In
+  // the chrome the link is there for whoever holds either permission and
+  // absent for everyone else.
+  //
+  // Not gated on closure: the packet of a closed Circle is the whole point of
+  // having one, and ExportView drops the closing half on its own.
+  const canWrapUp =
+    circle?.my_access?.permissions.some(
+      (p) => p === "export.create" || p === "circle.close",
+    ) === true;
 
   return (
     <div className="min-h-screen">
@@ -99,6 +134,31 @@ export function CircleFrame({
               <Wordmark size={17} />
             </a>
             <div className="flex items-center gap-1">
+              {canWrapUp && (
+                <a
+                  href={`/circles/${circleId}/export`}
+                  aria-current={tab === "export" ? "page" : undefined}
+                  className={`rounded-[var(--r-control)] px-2.5 py-1.5 text-[0.8125rem] no-underline transition-colors hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)] ${
+                    tab === "export"
+                      ? "bg-[var(--paper-sunk)] font-[590] text-[var(--ink)]"
+                      : "text-[var(--ink-muted)]"
+                  }`}
+                >
+                  Export
+                </a>
+              )}
+              {/*
+                The only destination in the app that is not a Circle (spec
+                §21). It sits in the chrome rather than in the tab bar because
+                it is not part of this mission — it is where the next one, and
+                the record of the last one, live.
+              */}
+              <a
+                href="/work"
+                className="rounded-[var(--r-control)] px-2.5 py-1.5 text-[0.8125rem] text-[var(--ink-muted)] no-underline transition-colors hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)]"
+              >
+                Work
+              </a>
               <ThemeToggle />
               <button
                 onClick={() => {
@@ -124,12 +184,7 @@ export function CircleFrame({
           <div className="max-w-3xl pb-5 pt-2">
             {circle ? (
               <>
-                <h1 className="display text-[2rem] font-[680] leading-[1.12] text-[var(--ink)]">
-                  {circle.name}
-                </h1>
-                <p className="mt-2.5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
-                  {circle.purpose}
-                </p>
+                <MissionStatement circle={circle} editable={canManage} onSaved={mutate} />
 
                 {/*
                   The four facts that change how you read every other screen, on
@@ -137,7 +192,7 @@ export function CircleFrame({
                   chips they cost a quarter of the height and scan in one pass.
                 */}
                 <div className="mt-4 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[0.8125rem]">
-                  {canSetProgress ? (
+                  {canManage ? (
                     <CircleMeterControl circle={circle} onSaved={mutate} />
                   ) : (
                     <CircleMeter circle={circle} />
@@ -190,7 +245,7 @@ export function CircleFrame({
 
         {/*
           The tab bar. Sticky, translucent, and horizontally scrollable on
-          narrow screens — ten destinations do not fit on a phone, and
+          narrow screens — this many destinations do not fit on a phone, and
           truncating them would hide whole areas of the product.
         */}
         <div className="blurbar sticky top-0 z-20 border-b border-[var(--rule)]">

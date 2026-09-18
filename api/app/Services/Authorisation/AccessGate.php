@@ -9,7 +9,10 @@ use App\Enums\Permission;
 use App\Models\AgentInstance;
 use App\Models\Circle;
 use App\Models\CircleMembership;
+use App\Models\CircleParty;
 use App\Models\CircleResource;
+use App\Models\Engagement;
+use App\Models\Goal;
 use App\Models\ResourceAccessOverride;
 use App\Models\RoleGrant;
 use App\Models\User;
@@ -26,8 +29,17 @@ use App\Services\Audit\AuditChain;
  *   5. any explicit deny/expiry constraint?
  *   6. for an agent: agent-readable and within mandate?
  *
+ * and one added by spec §21.2:
+ *   7. for a seat issued by an engagement: is the contract live, and is the
+ *      subject inside its scope?
+ *
  * The effective permission is the *intersection* of all of them. Nothing is
  * granted by organisation membership alone.
+ *
+ * (7) runs last because an engagement can only ever *narrow*. It never grants
+ * a permission the role did not already carry, so nothing above it needs to
+ * know it exists — and a Circle with no engagements behaves exactly as it did
+ * before §21.
  */
 class AccessGate
 {
@@ -49,6 +61,46 @@ class AccessGate
         Permission::CircleClose,
     ];
 
+    /**
+     * Permissions whose subject is a goal, and which therefore cannot be
+     * authorised against a scoped engagement without one (spec §21.2).
+     *
+     * Listed positively so adding a permission does not silently opt it out of
+     * the scope check — a new goal verb that forgot to appear here is caught by
+     * the fail-closed branch in inspectEngagement() instead of slipping past it.
+     *
+     * `goal.branch` and `goal.merge` are deliberately absent. Opening a branch
+     * changes nothing and names no goal, so a scope check there could only ever
+     * refuse an empty container; the check that matters happens when a change
+     * is staged, where GoalBranchService names the goal it touches. And merging
+     * is governed by §20.7's rule that every affected party signs, which is a
+     * stronger constraint than a scope and already covers the same ground.
+     */
+    /**
+     * What a seat may still do while its engagement is only *proposed*.
+     *
+     * The negotiation window (spec §21.1). A shortlisted applicant has to be
+     * able to propose the branch that would assign them the work, and to argue
+     * about the terms, before anybody has agreed to anything — and they have to
+     * be able to do it inside the scope they applied for and nowhere else.
+     *
+     * Both are proposals. Neither changes the plan: a branch still needs every
+     * affected party's signature to merge, and a comment is a comment. That is
+     * why this exception is safe and why it is exactly two entries long.
+     */
+    private const NEGOTIATION_PERMISSIONS = [
+        Permission::GoalBranch,
+        Permission::CommentCreate,
+    ];
+
+    private const SCOPED_TO_A_GOAL = [
+        Permission::GoalCreate,
+        Permission::GoalUpdate,
+        Permission::GoalAccept,
+        Permission::CommitmentCreate,
+        Permission::CommitmentUpdate,
+    ];
+
     public function __construct(private readonly AuditChain $audit) {}
 
     public function inspect(
@@ -56,6 +108,7 @@ class AccessGate
         Permission $permission,
         Circle $circle,
         ?CircleResource $resource = null,
+        ?Goal $subject = null,
     ): AccessDecision {
         // A resource can only ever be reached through its own Circle.
         if ($resource !== null && $resource->circle_id !== $circle->id) {
@@ -64,12 +117,17 @@ class AccessGate
 
         return $actor instanceof AgentInstance
             ? $this->inspectAgent($actor, $permission, $circle, $resource)
-            : $this->inspectUser($actor, $permission, $circle, $resource);
+            : $this->inspectUser($actor, $permission, $circle, $resource, $subject);
     }
 
-    public function allows(Actor $actor, Permission $permission, Circle $circle, ?CircleResource $resource = null): bool
-    {
-        return $this->inspect($actor, $permission, $circle, $resource)->allowed;
+    public function allows(
+        Actor $actor,
+        Permission $permission,
+        Circle $circle,
+        ?CircleResource $resource = null,
+        ?Goal $subject = null,
+    ): bool {
+        return $this->inspect($actor, $permission, $circle, $resource, $subject)->allowed;
     }
 
     /**
@@ -81,8 +139,9 @@ class AccessGate
         Permission $permission,
         Circle $circle,
         ?CircleResource $resource = null,
+        ?Goal $subject = null,
     ): void {
-        $decision = $this->inspect($actor, $permission, $circle, $resource);
+        $decision = $this->inspect($actor, $permission, $circle, $resource, $subject);
 
         if ($decision->allowed) {
             return;
@@ -107,8 +166,13 @@ class AccessGate
 
     // ---------------------------------------------------------------- users
 
-    private function inspectUser(User $user, Permission $permission, Circle $circle, ?CircleResource $resource): AccessDecision
-    {
+    private function inspectUser(
+        User $user,
+        Permission $permission,
+        Circle $circle,
+        ?CircleResource $resource,
+        ?Goal $subject = null,
+    ): AccessDecision {
         // (1) active Circle membership
         $membership = $this->membershipFor($user, $circle);
 
@@ -159,9 +223,19 @@ class AccessGate
             );
         }
 
+        // The party this member belongs to, if the Circle uses parties. Carried
+        // into the resource policy so a scope can be set once for a company
+        // rather than repeated for each of its people as they come and go.
+        //
+        // effectivePartyId() rather than the raw column: a member with no party
+        // row sits with the convener, which is the fallback private threads
+        // already use. The two have to agree, or the convener's own staff are
+        // the one group a party scope silently fails to describe.
+        $partyId = $membership->effectivePartyId();
+
         // External collaborator defaults (spec §10).
         if ($membership->is_external && in_array($permission, self::EXTERNAL_DENIED_BY_DEFAULT, true)) {
-            $override = $resource !== null ? $this->resourceOverride($resource, $user, $permission) : null;
+            $override = $resource !== null ? $this->resourceOverride($resource, $user, $permission, $partyId) : null;
 
             if ($override === null || ! $override->allow) {
                 return AccessDecision::deny(
@@ -173,30 +247,144 @@ class AccessGate
 
         // (3) resource policy
         if ($resource !== null) {
-            $resourceDecision = $this->inspectResourcePolicy($user, $permission, $resource);
+            $resourceDecision = $this->inspectResourcePolicy($user, $permission, $resource, $partyId);
 
             if (! $resourceDecision->allowed) {
                 return $resourceDecision;
             }
         }
 
+        // (7) the contract that issued this seat (spec §21.2)
+        if ($membership->engagement_id !== null && $permission->isWrite()) {
+            $engagementDecision = $this->inspectEngagement($membership, $permission, $subject);
+
+            if (! $engagementDecision->allowed) {
+                return $engagementDecision;
+            }
+        }
+
         return AccessDecision::allow();
     }
 
-    private function inspectResourcePolicy(User $user, Permission $permission, CircleResource $resource): AccessDecision
+    /**
+     * A seat issued by a temp contract lives and dies with it (spec §21.2).
+     *
+     * The term is checked against the clock on every request, which is why this
+     * is not a scheduled job that revokes memberships when a contract ends: an
+     * engagement whose end date passed an hour ago stops working an hour ago,
+     * not whenever a sweep next runs.
+     */
+    private function inspectEngagement(CircleMembership $membership, Permission $permission, ?Goal $subject): AccessDecision
     {
-        $override = $this->resourceOverride($resource, $user, $permission);
+        $engagement = $membership->relationLoaded('engagement')
+            ? $membership->engagement
+            : Engagement::find($membership->engagement_id);
+
+        // A seat whose contract is gone keeps nothing. The membership column is
+        // nullOnDelete, so this is reachable, and the safe reading of "your
+        // contract no longer exists" is not "you may do as you like".
+        if ($engagement === null) {
+            return AccessDecision::deny(
+                'engagement_missing',
+                'The engagement that granted this access no longer exists.',
+            );
+        }
+
+        if (! $engagement->permitsWork()) {
+            // The one exception, and it is narrow by construction: a proposed
+            // engagement is a negotiation, and a negotiation is conducted in
+            // proposals. See NEGOTIATION_PERMISSIONS above. The scope check
+            // below still runs, so an applicant argues about the work they
+            // applied for and nothing else.
+            $negotiating = $engagement->status === \App\Enums\EngagementStatus::Proposed
+                && in_array($permission, self::NEGOTIATION_PERMISSIONS, true);
+
+            if (! $negotiating) {
+                return AccessDecision::deny(
+                    'engagement_' . $engagement->status->value,
+                    $engagement->refusalReason() ?? 'This engagement does not permit changes.',
+                );
+            }
+        }
+
+        if ($engagement->scope_goal_id === null) {
+            return AccessDecision::allow();
+        }
+
+        // A scope was named and the goal it named is gone. Deny rather than
+        // widen: the alternative hands a contractor confined to one package the
+        // run of the whole Circle the moment that package is removed, which is
+        // the opposite of what was agreed.
+        if ($engagement->hasDanglingScope()) {
+            return AccessDecision::deny(
+                'engagement_scope_missing',
+                'The work this engagement was scoped to no longer exists.',
+            );
+        }
+
+        // Fail closed. For a permission whose subject *is* a goal, a caller
+        // that did not say which goal has not been checked — and a scope check
+        // that quietly passes when nobody supplied a subject is worse than
+        // none, because the audit log reads as though it ran.
+        if ($subject === null) {
+            return in_array($permission, self::SCOPED_TO_A_GOAL, true)
+                ? AccessDecision::deny(
+                    'engagement_scope_unresolved',
+                    'This engagement is scoped to particular work, and the request did not say which work it concerns.',
+                )
+                : AccessDecision::allow();
+        }
+
+        return $engagement->coversGoal($subject)
+            ? AccessDecision::allow()
+            : AccessDecision::deny(
+                'engagement_out_of_scope',
+                sprintf(
+                    'This engagement covers %s and nothing outside it.',
+                    $engagement->scopeGoal?->title ?? 'other work',
+                ),
+            );
+    }
+
+    private function inspectResourcePolicy(
+        User $user,
+        Permission $permission,
+        CircleResource $resource,
+        ?string $partyId = null,
+    ): AccessDecision {
+        $override = $this->resourceOverride($resource, $user, $permission, $partyId);
 
         if ($override !== null) {
             return $override->allow
                 ? AccessDecision::allow('resource_override')
-                : AccessDecision::deny('resource_override_denies', 'Access to this resource has been explicitly denied.');
+                : AccessDecision::deny(
+                    $override->circle_party_id !== null ? 'party_scope_denies' : 'resource_override_denies',
+                    $override->circle_party_id !== null
+                        ? 'This item is scoped to another party.'
+                        : 'Access to this resource has been explicitly denied.',
+                );
         }
 
         $item = $resource->relationLoaded('evidenceItem') ? $resource->evidenceItem : $resource->evidenceItem()->first();
 
         if ($item === null) {
             return AccessDecision::allow();
+        }
+
+        // The item's own party scope. Checked after the override table on
+        // purpose: a named grant is the documented way to let one person from
+        // outside the party in, and it has to outrank the item's default.
+        //
+        // This is deliberately not a fourth width of override. An override
+        // answers "who else may reach this", one row per permission; the scope
+        // answers "whose material is this", once, for every permission at once.
+        // The uploader sets it at upload, which is the only moment anyone
+        // actually knows the answer.
+        if (! $item->isVisibleToParty($partyId, CircleParty::convenerIdFor($resource->circle_id))) {
+            return AccessDecision::deny(
+                'party_restricted',
+                'This evidence item is restricted to another party.',
+            );
         }
 
         // Download is a distinct right from view (spec §7).
@@ -303,6 +491,20 @@ class AccessGate
                 return AccessDecision::deny('agent_read_not_enabled', 'This evidence item is not marked agent-readable.');
             }
 
+            // An agent instance is bound to a Circle, not to a party, so it has
+            // no standing to hold one party's material. Refused outright rather
+            // than resolved to a party: a Circle-level agent summarising every
+            // bidder's rates into one shared answer is the leak this scope
+            // exists to stop, and it would not look like a leak in the output.
+            // A party bringing its own agent is what agent_connections is for,
+            // and that agent is not this identity.
+            if ($item !== null && $item->restricted_to_party_id !== null) {
+                return AccessDecision::deny(
+                    'party_restricted',
+                    'This evidence item is restricted to a party; agents read only Circle-wide evidence.',
+                );
+            }
+
             if ($item !== null && $item->expires_at !== null && $item->expires_at->isPast()) {
                 return AccessDecision::deny('resource_expired', 'This evidence item has expired.');
             }
@@ -332,16 +534,40 @@ class AccessGate
         return $grant?->isActive() ? $grant : null;
     }
 
-    private function resourceOverride(CircleResource $resource, User $user, Permission $permission): ?ResourceAccessOverride
-    {
-        $override = ResourceAccessOverride::query()
+    /**
+     * The narrowest override that applies to this person on this resource.
+     *
+     * Three widths, and the narrowest wins: named user, then their party, then
+     * the resource as a whole. Ordering rather than short-circuiting matters
+     * because the common shape is a resource-wide deny with a named exception,
+     * and evaluating the wide rule first would refuse the exception.
+     *
+     * An expired override is skipped rather than treated as a deny, so a lapsed
+     * grant falls back to the next rule out instead of silently locking someone
+     * out of a resource they otherwise have every right to.
+     */
+    private function resourceOverride(
+        CircleResource $resource,
+        User $user,
+        Permission $permission,
+        ?string $partyId = null,
+    ): ?ResourceAccessOverride {
+        $overrides = ResourceAccessOverride::query()
             ->where('resource_id', $resource->id)
             ->where('permission', $permission->value)
-            ->where(fn ($q) => $q->where('user_id', $user->id)->orWhereNull('user_id'))
-            // A user-specific override outranks a resource-wide one.
-            ->orderByRaw('case when user_id is null then 1 else 0 end')
-            ->first();
+            ->where(function ($q) use ($user, $partyId) {
+                $q->where('user_id', $user->id);
 
-        return $override?->isActive() ? $override : null;
+                if ($partyId !== null) {
+                    $q->orWhere('circle_party_id', $partyId);
+                }
+
+                $q->orWhere(fn ($w) => $w->whereNull('user_id')->whereNull('circle_party_id'));
+            })
+            ->get()
+            ->filter(fn (ResourceAccessOverride $o) => $o->isActive())
+            ->sortByDesc(fn (ResourceAccessOverride $o) => $o->specificity());
+
+        return $overrides->first();
     }
 }

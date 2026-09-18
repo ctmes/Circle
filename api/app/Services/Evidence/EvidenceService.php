@@ -33,6 +33,7 @@ class EvidenceService
         private readonly AuditChain $audit,
         private readonly EvidenceStorage $storage,
         private readonly DecisionService $decisions,
+        private readonly \App\Services\Notifications\Notifier $notifier,
     ) {}
 
     /**
@@ -53,11 +54,12 @@ class EvidenceService
         bool $agentRead = false,
         bool $downloadable = true,
         ?\DateTimeInterface $expiresAt = null,
+        ?string $restrictedToPartyId = null,
     ): EvidenceItem {
         return DB::transaction(function () use (
             $circle, $uploader, $storageKey, $originalFilename, $displayName,
             $declaredMimeType, $classification, $sourceLabel, $sourceUrl,
-            $agentRead, $downloadable, $expiresAt
+            $agentRead, $downloadable, $expiresAt, $restrictedToPartyId
         ) {
             $resource = CircleResource::create([
                 'circle_id'       => $circle->id,
@@ -76,6 +78,10 @@ class EvidenceService
                 'integrity_status' => IntegrityStatus::Unknown,
                 'review_status'    => ReviewStatus::Unreviewed,
                 'classification'   => $classification,
+                // Null is the default and means the whole Circle: evidence is
+                // what a Circle exists to pool, and an item nobody chose to
+                // narrow is everybody's.
+                'restricted_to_party_id' => $restrictedToPartyId,
                 'source_label'     => $sourceLabel,
                 'source_url'       => $sourceUrl,
                 'uploader_user_id' => $uploader->id,
@@ -99,6 +105,9 @@ class EvidenceService
                     'storage_key'    => $storageKey,
                     'classification' => $classification->value,
                     'agent_read'     => $agentRead,
+                    // In the audit trail from the start: "who could see this,
+                    // and from when" is the question a scoped item invites.
+                    'restricted_to_party_id' => $restrictedToPartyId,
                 ],
             );
 
@@ -117,7 +126,7 @@ class EvidenceService
         string $originalFilename,
         ?string $declaredMimeType = null,
     ): EvidenceVersion {
-        return DB::transaction(function () use ($item, $uploader, $storageKey, $originalFilename, $declaredMimeType) {
+        [$version, $previous] = DB::transaction(function () use ($item, $uploader, $storageKey, $originalFilename, $declaredMimeType) {
             $previous = $item->versions()->orderByDesc('version_number')->lockForUpdate()->first();
             $nextNumber = ($previous?->version_number ?? 0) + 1;
 
@@ -160,8 +169,17 @@ class EvidenceService
                 ],
             );
 
-            return $version;
+            return [$version, $previous];
         });
+
+        // After the commit, and only where something actually relied on the old
+        // version. Lineage was always exact; what was missing was anybody being
+        // told on the day, which is the only day it is useful to know.
+        if ($previous !== null) {
+            $this->notifier->evidenceSuperseded($previous, $version);
+        }
+
+        return $version;
     }
 
     private function makeVersion(

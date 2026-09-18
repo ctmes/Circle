@@ -8,6 +8,7 @@ use App\Models\Circle;
 use App\Models\Commitment;
 use App\Models\Decision;
 use App\Models\EvidenceItem;
+use App\Models\Goal;
 use App\Models\User;
 use App\Services\Authorisation\AccessGate;
 use App\Services\Decisions\DecisionService;
@@ -20,6 +21,7 @@ class DecisionController extends Controller
     public function __construct(
         private readonly AccessGate $gate,
         private readonly DecisionService $decisions,
+        private readonly \App\Services\Work\EngagementService $engagements,
     ) {}
 
     public function index(Request $request, Circle $circle): JsonResponse
@@ -27,8 +29,9 @@ class DecisionController extends Controller
         $this->gate->authorise($request->user(), Permission::CircleView, $circle);
 
         $decisions = Decision::where('circle_id', $circle->id)
-            ->with(['approver', 'createdBy', 'approvals.actor'])
+            ->with(['approver', 'createdBy', 'approvals.actor', 'goal'])
             ->when($request->query('status'), fn ($q, $v) => $q->where('status', $v))
+            ->when($request->query('goal'), fn ($q, $v) => $q->where('goal_id', $v))
             // Pending decisions first (spec §12).
             ->orderByRaw("case when status = 'pending' then 0 else 1 end")
             ->orderBy('expires_at')
@@ -40,17 +43,24 @@ class DecisionController extends Controller
 
     public function store(Request $request, Circle $circle): JsonResponse
     {
-        $this->gate->authorise($request->user(), Permission::DecisionCreate, $circle);
-
         $data = $request->validate([
             'title'            => ['required', 'string', 'max:255'],
             'description'      => ['nullable', 'string', 'max:5000'],
+            'goal_id'          => ['nullable', 'string'],
             'approver_user_id' => ['nullable', 'string', 'exists:users,id'],
             'subject_type'     => ['nullable', 'string', 'in:evidence_item,claim,decision'],
             'subject_id'       => ['nullable', 'string'],
             'subject_version'  => ['nullable', 'string', 'max:50'],
             'expires_at'       => ['nullable', 'date', 'after:now'],
         ]);
+
+        // Gated on the goal for the same reason commitments are: under a
+        // scoped engagement a contractor may raise decisions inside the work
+        // they were engaged for and not outside it (spec §21.2). The goal has
+        // to be resolved before the gate rather than after it.
+        $goal = $this->goalIn($circle, $data['goal_id'] ?? null);
+
+        $this->gate->authorise($request->user(), Permission::DecisionCreate, $circle, subject: $goal);
 
         $approver = isset($data['approver_user_id']) ? User::find($data['approver_user_id']) : null;
 
@@ -82,9 +92,10 @@ class DecisionController extends Controller
             subjectId: $data['subject_id'] ?? null,
             subjectVersion: $subjectVersion ?: null,
             expiresAt: isset($data['expires_at']) ? new \DateTimeImmutable($data['expires_at']) : null,
+            goal: $goal,
         );
 
-        return response()->json(['data' => $this->present($decision->load('approver', 'createdBy'))], 201);
+        return response()->json(['data' => $this->present($decision->load('approver', 'createdBy', 'goal'))], 201);
     }
 
     public function approve(Request $request, Decision $decision): JsonResponse
@@ -109,22 +120,34 @@ class DecisionController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        return response()->json(['data' => $this->present($decision->fresh()->load('approver', 'approvals.actor'))]);
+        return response()->json(['data' => $this->present($decision->fresh()->load('approver', 'approvals.actor', 'goal'))]);
     }
 
     // ------------------------------------------------------------ commitments
 
     public function storeCommitment(Request $request, Circle $circle): JsonResponse
     {
-        $this->gate->authorise($request->user(), Permission::CommitmentCreate, $circle);
-
         $data = $request->validate([
             'title'                => ['required', 'string', 'max:255'],
             'description'          => ['nullable', 'string', 'max:5000'],
             'acceptance_condition' => ['nullable', 'string', 'max:2000'],
             'owner_user_id'        => ['nullable', 'string', 'exists:users,id'],
+            'goal_id'              => ['nullable', 'string'],
             'due_at'               => ['nullable', 'date'],
         ]);
+
+        // The goal is the subject. A contractor under a scoped engagement may
+        // commit to deliverables inside the work they were engaged for, and a
+        // commitment that names no goal names no work — so the gate refuses it
+        // rather than passing a check that never ran (spec §21.2).
+        $goal = $this->goalIn($circle, $data['goal_id'] ?? null);
+
+        $this->gate->authorise(
+            $request->user(),
+            Permission::CommitmentCreate,
+            $circle,
+            subject: $goal,
+        );
 
         $commitment = $this->decisions->createCommitment(
             circle: $circle,
@@ -134,14 +157,18 @@ class DecisionController extends Controller
             dueAt: isset($data['due_at']) ? new \DateTimeImmutable($data['due_at']) : null,
             description: $data['description'] ?? null,
             acceptanceCondition: $data['acceptance_condition'] ?? null,
+            goal: $goal,
         );
 
-        return response()->json(['data' => $this->presentCommitment($commitment->load('owner'))], 201);
+        return response()->json(['data' => $this->presentCommitment($commitment->load('owner', 'goal'))], 201);
     }
 
     public function updateCommitment(Request $request, Commitment $commitment): JsonResponse
     {
-        $this->gate->authorise($request->user(), Permission::CommitmentUpdate, $commitment->circle);
+        // The goal is passed as the subject so a contractor working under a
+        // scoped engagement cannot move a deliverable outside the work they
+        // were engaged for (spec §21.2).
+        $this->gate->authorise($request->user(), Permission::CommitmentUpdate, $commitment->circle, subject: $commitment->goal);
 
         $data = $request->validate([
             'status' => ['nullable', 'string', 'in:draft,open,blocked,done,cancelled'],
@@ -157,6 +184,13 @@ class DecisionController extends Controller
             dueAt: isset($data['due_at']) ? new \DateTimeImmutable($data['due_at']) : null,
         );
 
+        // Accepting a deliverable is what closes the fee obligation under a
+        // per-deliverable engagement (spec §21.2), and is the hook a payment
+        // tool would hang from if one were ever registered under the
+        // `financial` classification. None is. Silent where the commitment
+        // belongs to no engagement, which is the ordinary case.
+        $this->engagements->meterDeliverable($commitment->fresh());
+
         return response()->json(['data' => $this->presentCommitment($commitment->fresh()->load('owner', 'updates'))]);
     }
 
@@ -165,7 +199,8 @@ class DecisionController extends Controller
         $this->gate->authorise($request->user(), Permission::CircleView, $circle);
 
         $commitments = Commitment::where('circle_id', $circle->id)
-            ->with(['owner', 'updates'])
+            ->with(['owner', 'updates', 'goal'])
+            ->when($request->query('goal'), fn ($q, $v) => $q->where('goal_id', $v))
             ->orderBy('due_at')
             ->get();
 
@@ -174,11 +209,35 @@ class DecisionController extends Controller
 
     // ------------------------------------------------------------- presenters
 
+    /**
+     * Resolves a goal id against *this* Circle.
+     *
+     * `exists:goals,id` was not enough on its own: it accepted a node from any
+     * Circle in the database, so a commitment could be filed under somebody
+     * else's plan. Same check CreateCommitmentTool makes on the agent side.
+     */
+    private function goalIn(Circle $circle, ?string $goalId): ?Goal
+    {
+        if ($goalId === null) {
+            return null;
+        }
+
+        $goal = Goal::where('circle_id', $circle->id)->whereKey($goalId)->first();
+
+        abort_if($goal === null, 422, 'That goal is not part of this Circle.');
+
+        return $goal;
+    }
+
     private function present(Decision $decision): array
     {
         return [
             'id'          => $decision->id,
             'title'       => $decision->title,
+            'goal'        => $decision->goal_id === null ? null : [
+                'id'    => $decision->goal_id,
+                'title' => $decision->goal?->title,
+            ],
             'description' => $decision->description,
             'status'      => $decision->status->value,
             'created_by'  => ['id' => $decision->created_by_user_id, 'name' => $decision->createdBy?->name],
@@ -214,6 +273,10 @@ class DecisionController extends Controller
         return [
             'id'                   => $commitment->id,
             'title'                => $commitment->title,
+            'goal'                 => $commitment->goal_id === null ? null : [
+                'id'    => $commitment->goal_id,
+                'title' => $commitment->goal?->title,
+            ],
             'description'          => $commitment->description,
             'acceptance_condition' => $commitment->acceptance_condition,
             'status'               => $commitment->status->value,

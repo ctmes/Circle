@@ -28,10 +28,17 @@ class MembershipController extends Controller
     {
         $this->gate->authorise($request->user(), Permission::CircleView, $circle);
 
-        $members = $circle->memberships()->with('user')->get()->map(fn ($m) => [
+        $members = $circle->memberships()->with(['user', 'party.organisation'])->get()->map(fn ($m) => [
             'membership_id' => $m->id,
             'user'          => ['id' => $m->user_id, 'name' => $m->user?->name, 'email' => $m->user?->email],
             'circle_role'   => $m->circle_role->value,
+            // Which company they sit in. The branch review needs it to say
+            // "this is waiting on you" rather than naming a party and leaving
+            // the reader to work out whether that means them.
+            'party'         => $m->party === null ? null : [
+                'id'    => $m->party->id,
+                'label' => $m->party->label(),
+            ],
             'is_external'   => $m->is_external,
             'invite_status' => $m->invite_status,
             'is_active'     => $m->isActive(),
@@ -71,6 +78,10 @@ class MembershipController extends Controller
                     'can_access' => EvidenceItem::query()
                         ->whereHas('resource', fn ($q) => $q->where('circle_id', $circle->id))
                         ->where('agent_read', true)
+                        // A party-scoped item is refused to this agent by the
+                        // gate, so listing it here would make the statement
+                        // wrong in the one direction that matters.
+                        ->whereNull('restricted_to_party_id')
                         ->with('resource')
                         ->get()
                         ->map(fn ($i) => ['evidence_item_id' => $i->id, 'name' => $i->resource->name])

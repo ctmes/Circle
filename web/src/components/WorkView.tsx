@@ -3,12 +3,16 @@ import {
   api,
   formatDate,
   relativeDays,
+  type Branch,
   type Circle,
   type Goal,
   type Party,
   type Member,
 } from "../lib/api";
+import { BranchBar } from "./BranchBar";
+import { BranchEditor } from "./BranchEditor";
 import { CircleFrame } from "./CircleFrame";
+import { GoalTree, statsFor } from "./GoalTree";
 import { Discussion } from "./Thread";
 import {
   Button,
@@ -29,12 +33,18 @@ import {
  * This does, and everything else — commitments, decisions, claims, discussion —
  * hangs off a node in it.
  *
- * Two levels only. Deeper nesting turns into a work-breakdown structure that
- * nobody maintains, and the second level is where responsibility actually lands.
+ * The tree is drawn as a tree — rows, rules, twisties — rather than as nested
+ * cards, because a plan is a shape and a shape has to be seen rather than
+ * reassembled from indentation. GoalTree owns that drawing; this file owns what
+ * happens when you open a node.
+ *
+ * Depth is capped in configuration rather than here. Four levels is the default
+ * because principal → package → contractor → subcontractor is four before
+ * anyone has padded anything.
  */
 export function WorkView({ circleId }: { circleId: string }) {
   return (
-    <CircleFrame circleId={circleId} tab="work">
+    <CircleFrame circleId={circleId} tab="">
       {(circle) => <Body circleId={circleId} circle={circle} />}
     </CircleFrame>
   );
@@ -46,11 +56,33 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
   const canUpdate = perms.includes("goal.update") && !circle?.is_closed;
   const canAccept = perms.includes("goal.accept") && !circle?.is_closed;
   const canComment = perms.includes("comment.create") && !circle?.is_closed;
+  const canBranch = perms.includes("goal.branch") && !circle?.is_closed;
+  const canMerge = perms.includes("goal.merge") && !circle?.is_closed;
 
   const [composingUnder, setComposingUnder] = useState<string | null | false>(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [branchId, setBranchId] = useState<string | null>(null);
 
+  // Mirrors config('circle.goals.max_depth'). Only used to hide an "add" button
+  // the API would refuse anyway — the cap itself lives on the server.
+  const maxDepth = 4;
+
+  // The tree is re-fetched whenever the branch changes, never overlaid on the
+  // client. An overlay computed here would drift from the server's view of the
+  // same branch the moment main moved, and the difference between those two is
+  // exactly what somebody would be approving.
   const { data, error, loading, reload } = useAsync<Goal[]>(
-    () => api.get<{ data: Goal[] }>(`/circles/${circleId}/goals`).then((r) => r.data),
+    () =>
+      api
+        .get<{ data: Goal[] }>(
+          `/circles/${circleId}/goals${branchId ? `?branch=${branchId}` : ""}`,
+        )
+        .then((r) => r.data),
+    [circleId, branchId],
+  );
+
+  const branches = useAsync<Branch[]>(
+    () => api.get<{ data: Branch[] }>(`/circles/${circleId}/branches`).then((r) => r.data),
     [circleId],
   );
   const { data: parties } = useAsync<Party[]>(
@@ -78,8 +110,18 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
   if (error) return <ErrorNote error={error} />;
 
   const goals = data ?? [];
-  const overdue = countWhere(goals, (g) => g.is_overdue);
-  const unowned = countWhere(goals, (g) => g.owner === null && g.responsible_party === null);
+  const stats = statsFor(goals);
+
+  const activeBranch = (branches.data ?? []).find((b) => b.id === branchId) ?? null;
+
+  // Comes from the Circle rather than being guessed out of the member list:
+  // only the server knows which of those rows is the caller.
+  const myParties = circle?.my_access?.party ? [circle.my_access.party.label] : [];
+
+  function reloadAll() {
+    reload();
+    branches.reload();
+  }
 
   return (
     <div className="space-y-5">
@@ -91,19 +133,20 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <h2 className="display text-[1.25rem] font-[640] text-[var(--ink)]">The plan</h2>
         <span className="text-[0.8125rem] text-[var(--ink-muted)]">
-          {goals.length} goal{goals.length === 1 ? "" : "s"}
+          {stats.total} goal{stats.total === 1 ? "" : "s"}
+          {stats.maxDepth > 0 && `, ${stats.maxDepth + 1} levels deep`}
         </span>
-        {overdue > 0 && (
+        {stats.overdue > 0 && (
           <span className="text-[0.8125rem] font-[560] text-[var(--signal)]">
-            {overdue} overdue
+            {stats.overdue} overdue
           </span>
         )}
-        {unowned > 0 && (
+        {stats.unowned > 0 && (
           <span
             className="text-[0.8125rem] text-[var(--ink-muted)]"
             title="Work with neither a person nor a company answerable for it."
           >
-            {unowned} unassigned
+            {stats.unowned} unassigned
           </span>
         )}
 
@@ -133,6 +176,28 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
         />
       )}
 
+      {/*
+        The branch bar sits above the tree rather than on a screen of its own.
+        The only useful way to review a proposed change to a plan is against the
+        plan; a diff elsewhere means holding the tree in your head while reading
+        it, which is exactly what people get wrong.
+      */}
+      {(canBranch || (branches.data ?? []).some((b) => b.status !== "merged")) && (
+        <BranchBar
+          circleId={circleId}
+          branches={branches.data ?? []}
+          active={activeBranch}
+          onSelect={(id) => {
+            setBranchId(id);
+            setSelected(null);
+          }}
+          onChanged={reloadAll}
+          canBranch={canBranch}
+          canMerge={canMerge}
+          myParties={myParties}
+        />
+      )}
+
       {goals.length === 0 ? (
         <Panel>
           <Empty>
@@ -142,148 +207,75 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
           </Empty>
         </Panel>
       ) : (
-        <div className="space-y-4">
-          {goals.map((goal) => (
-            <GoalCard
-              key={goal.id}
+        <GoalTree
+          circleId={circleId}
+          goals={goals}
+          selectedId={selected}
+          onSelect={setSelected}
+          renderDetail={(goal) => (
+            <GoalDetail
               goal={goal}
               circleId={circleId}
+              branch={activeBranch}
               parties={parties ?? []}
               members={members ?? []}
-              canCreate={canCreate}
+              canCreate={canCreate && goal.depth < maxDepth - 1}
               canUpdate={canUpdate}
               canAccept={canAccept}
               canComment={canComment}
-              onChanged={reload}
+              canBranch={canBranch}
+              atDepthLimit={goal.depth >= maxDepth - 1}
+              onChanged={reloadAll}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
     </div>
   );
 }
 
-/** A top-level goal and its sub-goals. */
-function GoalCard({
+/**
+ * What opens when you click a row.
+ *
+ * Everything that was spread across a card and a sub-row is here instead: the
+ * acceptance condition, who owes it, the actions, the discussion. The tree row
+ * answers "what state is this in"; this answers "what is it, and what do I do
+ * about it" — and only for the one node you asked about, which is why the tree
+ * above it stays legible at four levels.
+ */
+function GoalDetail({
   goal,
   circleId,
+  branch,
   parties,
   members,
   canCreate,
   canUpdate,
   canAccept,
   canComment,
+  canBranch,
+  atDepthLimit,
   onChanged,
 }: {
   goal: Goal;
   circleId: string;
+  /** Set when the tree is being viewed on a branch. Edits stage, not apply. */
+  branch: Branch | null;
   parties: Party[];
   members: Member[];
   canCreate: boolean;
   canUpdate: boolean;
   canAccept: boolean;
   canComment: boolean;
+  canBranch: boolean;
+  atDepthLimit: boolean;
   onChanged: () => void;
-}) {
-  const [addingChild, setAddingChild] = useState(false);
-
-  return (
-    <Panel
-      tone={goal.is_overdue ? "signal" : "default"}
-      className="lay-in"
-      title={undefined}
-    >
-      <div className="px-5 pb-4 pt-4">
-        <GoalHeader
-          goal={goal}
-          parties={parties}
-          canUpdate={canUpdate}
-          canAccept={canAccept}
-          onChanged={onChanged}
-          large
-        />
-      </div>
-
-      {/* Sub-goals: where the work and the responsibility actually sit. */}
-      <div className="border-t border-[var(--rule)]">
-        {(goal.children ?? []).length === 0 ? (
-          <p className="px-5 py-3.5 text-[0.8125rem] text-[var(--ink-faint)]">
-            No sub-goals. Break this down so each piece has one owner and one date.
-          </p>
-        ) : (
-          <ul>
-            {(goal.children ?? []).map((child) => (
-              <li key={child.id} className="border-t border-[var(--rule)] first:border-t-0">
-                <div className="px-5 py-3.5">
-                  <GoalHeader
-                    goal={child}
-                    parties={parties}
-                    canUpdate={canUpdate}
-                    canAccept={canAccept}
-                    onChanged={onChanged}
-                  />
-                  <SubGoalDetail
-                    goal={child}
-                    circleId={circleId}
-                    canComment={canComment}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {canCreate && (
-        <div className="border-t border-[var(--rule)] px-5 py-3">
-          {addingChild ? (
-            <GoalComposer
-              circleId={circleId}
-              parentId={goal.id}
-              parties={parties}
-              members={members}
-              onDone={() => {
-                setAddingChild(false);
-                onChanged();
-              }}
-              onCancel={() => setAddingChild(false)}
-            />
-          ) : (
-            <Button variant="quiet" onClick={() => setAddingChild(true)}>
-              Add a sub-goal
-            </Button>
-          )}
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-/**
- * One goal's identity line: what it is, who owes it, when, and how far along.
- *
- * The responsible *party* is shown next to the owner rather than instead of it.
- * In cross-company work "Sam" is not an answer to who owes this — Sam's company
- * is, and Sam might leave.
- */
-function GoalHeader({
-  goal,
-  parties,
-  canUpdate,
-  canAccept,
-  onChanged,
-  large = false,
-}: {
-  goal: Goal;
-  parties: Party[];
-  canUpdate: boolean;
-  canAccept: boolean;
-  onChanged: () => void;
-  large?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [rescheduling, setRescheduling] = useState(false);
+  const [addingChild, setAddingChild] = useState(false);
+  const [showDiscussion, setShowDiscussion] = useState(false);
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -299,32 +291,21 @@ function GoalHeader({
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <p
-            className={
-              large
-                ? "display text-[1.125rem] font-[640] leading-snug text-[var(--ink)]"
-                : "text-[0.9375rem] font-[560] leading-snug text-[var(--ink)]"
-            }
-          >
-            {goal.title}
-          </p>
-          {goal.description && (
-            <p className="mt-1 text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
-              {goal.description}
-            </p>
-          )}
-        </div>
+    <div className="space-y-3 py-3.5 pr-4">
+      {goal.description && (
+        <p className="max-w-[70ch] text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+          {goal.description}
+        </p>
+      )}
 
-        <div className="flex shrink-0 items-center gap-2.5">
-          <GoalStatusChip goal={goal} />
-          <ProgressPip goal={goal} />
-        </div>
-      </div>
+      {/*
+        The responsible party sits next to the owner rather than instead of it.
+        In cross-company work "Sam" is not an answer to who owes this — Sam's
+        company is, and Sam might leave.
+      */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem]">
+        <GoalStatusChip goal={goal} />
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem]">
         <span className="text-[var(--ink-muted)]">
           {goal.owner?.name ?? <span className="text-[var(--ink-faint)]">Unassigned</span>}
         </span>
@@ -340,37 +321,76 @@ function GoalHeader({
 
         <span
           className={
-            goal.is_overdue
-              ? "font-[560] text-[var(--signal)]"
-              : "text-[var(--ink-faint)]"
+            goal.is_overdue ? "font-[560] text-[var(--signal)]" : "text-[var(--ink-faint)]"
           }
         >
-          {goal.due_at ? relativeDays(goal.due_at) : "No date"}
+          {goal.due_at ? `${formatDate(goal.due_at)} · ${relativeDays(goal.due_at)}` : "No date"}
         </span>
 
-        {(goal.counts.commitments > 0 ||
-          goal.counts.decisions > 0 ||
-          goal.counts.claims > 0) && (
-          <span className="text-xs text-[var(--ink-faint)]">
-            {[
-              goal.counts.commitments && `${goal.counts.commitments} commitment${goal.counts.commitments === 1 ? "" : "s"}`,
-              goal.counts.decisions && `${goal.counts.decisions} decision${goal.counts.decisions === 1 ? "" : "s"}`,
-              goal.counts.claims && `${goal.counts.claims} claim${goal.counts.claims === 1 ? "" : "s"}`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        )}
+        <ProgressPip goal={goal} />
+      </div>
 
-        <span className="ml-auto flex items-center gap-1">
+      {goal.acceptance_condition && !goal.accepted_at && (
+        <p className="max-w-[70ch] rounded-[var(--r-control)] bg-[var(--paper-raised)] px-3 py-2 text-xs leading-relaxed text-[var(--ink-muted)]">
+          <span className="label">Done when</span>
+          <span className="ml-1.5">{goal.acceptance_condition}</span>
+        </p>
+      )}
+
+      {!goal.acceptance_condition && !goal.accepted_at && (
+        <p className="text-xs text-[var(--ink-faint)]">
+          No acceptance condition. Completion is whatever the owner says it is.
+        </p>
+      )}
+
+      {goal.accepted_at && (
+        <p className="text-xs text-[var(--settled)]">
+          Accepted by {goal.accepted_by ?? "—"} · {formatDate(goal.accepted_at, true)}
+        </p>
+      )}
+
+      {!!error && <ErrorNote error={error} />}
+
+      {/*
+        On a branch the same controls stage rather than apply, and acceptance
+        disappears entirely: accepting work is a statement about what has been
+        done, not a proposal about what should be. Putting it on a branch would
+        mean signing off on a completion that has not happened yet.
+      */}
+      {branch !== null && branch.status !== "merged" ? (
+        <BranchEditor
+          goal={goal}
+          branch={branch}
+          parties={parties}
+          members={members}
+          canBranch={canBranch}
+          canCreate={canCreate}
+          onChanged={onChanged}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center gap-1.5">
           {canUpdate && !goal.accepted_at && (
             <Button variant="quiet" disabled={busy} onClick={() => setRescheduling((v) => !v)}>
-              Move date
+              {rescheduling ? "Cancel" : "Move date"}
             </Button>
           )}
+
+          {canCreate && (
+            <Button variant="quiet" disabled={busy} onClick={() => setAddingChild((v) => !v)}>
+              {addingChild ? "Cancel" : "Add sub-goal"}
+            </Button>
+          )}
+
+          {goal.id !== null && (
+            <Button variant="quiet" onClick={() => setShowDiscussion((v) => !v)}>
+              {showDiscussion ? "Hide discussion" : "Discussion"}
+            </Button>
+          )}
+
           {/*
-            Acceptance is offered rather than a status dropdown, because "met"
-            is reached by someone signing it off — the API refuses the shortcut.
+            Acceptance is a button rather than a status dropdown, because "met"
+            is reached by someone signing it off — the API refuses the shortcut,
+            and offering one here would only produce a 422 nobody expected.
           */}
           {canAccept && !goal.accepted_at && goal.status !== "abandoned" && (
             <Button
@@ -382,26 +402,18 @@ function GoalHeader({
               Accept
             </Button>
           )}
-        </span>
-      </div>
-
-      {goal.acceptance_condition && !goal.accepted_at && (
-        <p className="mt-2 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3 py-2 text-xs leading-relaxed text-[var(--ink-muted)]">
-          <span className="label">Done when</span>{" "}
-          <span className="ml-1">{goal.acceptance_condition}</span>
-        </p>
-      )}
-
-      {goal.accepted_at && (
-        <p className="mt-2 text-xs text-[var(--settled)]">
-          Accepted by {goal.accepted_by ?? "—"} · {formatDate(goal.accepted_at, true)}
-        </p>
-      )}
-
-      {!!error && (
-        <div className="mt-2">
-          <ErrorNote error={error} />
         </div>
+      )}
+
+      {/*
+        On its own line rather than wedged between the buttons, where it read as
+        a disabled control. It is an explanation of an absent button, not one.
+      */}
+      {atDepthLimit && (
+        <p className="text-xs text-[var(--ink-faint)]">
+          This is the deepest level the tree goes. Work below it belongs in a
+          commitment, which is where an individual piece of work lives.
+        </p>
       )}
 
       {rescheduling && (
@@ -414,6 +426,36 @@ function GoalHeader({
           }}
           onCancel={() => setRescheduling(false)}
         />
+      )}
+
+      {addingChild && (
+        <GoalComposer
+          circleId={circleId}
+          parentId={goal.id}
+          parties={parties}
+          members={members}
+          onDone={() => {
+            setAddingChild(false);
+            onChanged();
+          }}
+          onCancel={() => setAddingChild(false)}
+        />
+      )}
+
+      {/*
+        A node a branch proposes adding has nothing to discuss yet — it does not
+        exist, so a thread against it would have no subject to hang on. The
+        conversation about whether it should exist belongs on the branch.
+      */}
+      {showDiscussion && goal.id !== null && (
+        <div className="max-w-[80ch]">
+          <Discussion
+            circleId={circleId}
+            subject={{ type: "goal", id: goal.id }}
+            canComment={canComment}
+            compact
+          />
+        </div>
       )}
     </div>
   );
@@ -514,41 +556,6 @@ function RescheduleForm({
           Cancel
         </Button>
       </div>
-    </div>
-  );
-}
-
-/** Progress reporting and discussion for one sub-goal. */
-function SubGoalDetail({
-  goal,
-  circleId,
-  canComment,
-}: {
-  goal: Goal;
-  circleId: string;
-  canComment: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="mt-2">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs text-[var(--accent)] hover:underline"
-      >
-        {open ? "Hide discussion" : "Discussion"}
-      </button>
-
-      {open && (
-        <div className="mt-3">
-          <Discussion
-            circleId={circleId}
-            subject={{ type: "goal", id: goal.id }}
-            canComment={canComment}
-            compact
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -716,13 +723,5 @@ function ProgressPip({ goal }: { goal: Goal }) {
         <span className="ml-1 text-xs font-[450] text-[var(--ink-faint)]">avg</span>
       )}
     </span>
-  );
-}
-
-function countWhere(goals: Goal[], predicate: (g: Goal) => boolean): number {
-  return goals.reduce(
-    (total, g) =>
-      total + (predicate(g) ? 1 : 0) + (g.children ?? []).filter(predicate).length,
-    0,
   );
 }

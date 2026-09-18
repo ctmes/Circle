@@ -25,7 +25,10 @@ use Illuminate\Support\Facades\DB;
  */
 class CommentService
 {
-    public function __construct(private readonly AuditChain $audit) {}
+    public function __construct(
+        private readonly AuditChain $audit,
+        private readonly \App\Services\Notifications\Notifier $notifier,
+    ) {}
 
     /**
      * Threads on one object that this member may actually read.
@@ -69,6 +72,7 @@ class CommentService
         CommentVisibility $visibility,
         ?CircleParty $party,
         bool $forTheRecord = false,
+        ?string $title = null,
     ): CommentThread {
         // A party-scoped thread with no party would be readable by nobody, so
         // it is a validation error rather than a silently empty thread.
@@ -78,13 +82,31 @@ class CommentService
             'A party-scoped thread needs the party it belongs to.',
         );
 
+        // A general thread has no subject to take a name from, and a general
+        // room full of untitled threads is the undifferentiated log §20.3 was
+        // right to refuse. The title is what makes it a table of contents.
+        $general = $subjectType === CommentThread::SUBJECT_CIRCLE;
+
+        abort_if(
+            $general && trim((string) $title) === '',
+            422,
+            'A discussion about the Circle needs a subject line.',
+        );
+
+        // The Circle is its own subject, so subject_id is never null and every
+        // query that already reads these columns keeps working untouched.
+        if ($general) {
+            $subjectId = $circle->id;
+        }
+
         return DB::transaction(function () use (
-            $circle, $author, $subjectType, $subjectId, $body, $visibility, $party, $forTheRecord
+            $circle, $author, $subjectType, $subjectId, $body, $visibility, $party, $forTheRecord, $title, $general
         ) {
             $thread = CommentThread::create([
                 'circle_id'           => $circle->id,
                 'subject_type'        => $subjectType,
                 'subject_id'          => $subjectId,
+                'title'               => $general ? trim((string) $title) : null,
                 'visibility'          => $visibility,
                 'visible_to_party_id' => $party?->id,
                 'created_by_type'     => 'user',
@@ -99,11 +121,12 @@ class CommentService
                 $author->id,
                 $subjectType,
                 $subjectId,
-                metadata: [
+                metadata: array_filter([
                     'thread_id'  => $thread->id,
                     'visibility' => $visibility->value,
                     'party'      => $party?->label(),
-                ],
+                    'title'      => $thread->title,
+                ]),
             );
 
             $this->post($thread, $author, $body, $party, forTheRecord: $forTheRecord);
@@ -121,7 +144,7 @@ class CommentService
         ?string $actionId = null,
         bool $forTheRecord = false,
     ): Comment {
-        return DB::transaction(function () use (
+        $comment = DB::transaction(function () use (
             $thread, $author, $body, $party, $actionType, $actionId, $forTheRecord
         ) {
             $comment = Comment::create([
@@ -158,6 +181,14 @@ class CommentService
 
             return $comment->fresh('mentions.user');
         });
+
+        // The mention was already recorded and surfaced in-app; this is the
+        // half that was missing. Notifier stamps comment_mentions.notified_at
+        // only for the people it actually reached, so the column means "was
+        // told" rather than "was named".
+        $this->notifier->mentioned($comment->setRelation('thread', $thread));
+
+        return $comment;
     }
 
     /**
@@ -251,9 +282,7 @@ class CommentService
             // branch a party thread in a Circle whose memberships predate
             // parties has no readers at all, and mentions in it vanish
             // silently — which is worse than refusing them.
-            $conveningPartyId = CircleParty::where('circle_id', $circleId)
-                ->where('is_convener', true)
-                ->value('id');
+            $conveningPartyId = CircleParty::convenerIdFor($circleId);
 
             $query->where(function ($q) use ($partyId, $conveningPartyId) {
                 $q->where('circle_party_id', $partyId);
@@ -319,6 +348,113 @@ class CommentService
 
             return $thread->fresh();
         });
+    }
+
+    /**
+     * Move a general thread onto the object it turned out to be about.
+     *
+     * This is the whole answer to §20.3. That section refused a Circle-wide
+     * channel because substance migrates into it and the structured record
+     * decays — and it was right that substance migrates. What it could not do
+     * was stop people talking; it could only stop them talking *here*, which
+     * sent the conversation to email and lost it entirely.
+     *
+     * So drift is allowed and made reversible. A question asked in the general
+     * room before anyone had drawn the goal can be moved onto that goal the
+     * moment it exists, and the whole conversation — every comment, every
+     * mention, every on-record marking — goes with it, because none of that
+     * lives on the subject. The record stops decaying not because nobody
+     * drifted but because somebody could tidy up afterwards in one action.
+     *
+     * One direction only. A thread already about a decision is not general, and
+     * moving it back would be the decay this is meant to undo.
+     */
+    public function attachTo(
+        CommentThread $thread,
+        User $actor,
+        string $subjectType,
+        string $subjectId,
+    ): CommentThread {
+        abort_unless(
+            $thread->isGeneral(),
+            422,
+            'Only a general discussion can be attached. This thread is already about a ' . $thread->subject_type . '.',
+        );
+
+        abort_unless(
+            in_array($subjectType, CommentThread::ATTACHABLE, true),
+            422,
+            'A thread can be attached to a goal, claim, decision, commitment or evidence item.',
+        );
+
+        $subject = $this->resolveSubject($thread->circle, $subjectType, $subjectId);
+
+        abort_if($subject === null, 404, 'That object is not in this Circle.');
+
+        $from = $thread->title;
+
+        return DB::transaction(function () use ($thread, $actor, $subjectType, $subjectId, $from) {
+            $thread->update([
+                'subject_type'        => $subjectType,
+                'subject_id'          => $subjectId,
+                // The title goes: the subject now names the thread, and two
+                // sources of truth for what a conversation is called is how
+                // they end up disagreeing.
+                'title'               => null,
+                'attached_at'         => now(),
+                'attached_by_user_id' => $actor->id,
+            ]);
+
+            $this->audit->record(
+                AuditEventType::CommentThreadAttached,
+                $thread->circle,
+                ActorType::User,
+                $actor->id,
+                $subjectType,
+                $subjectId,
+                metadata: array_filter([
+                    'thread_id'   => $thread->id,
+                    'from'        => 'circle',
+                    'was_titled'  => $from,
+                    'comments'    => $thread->comments()->count(),
+                ]),
+            );
+
+            return $thread->fresh(['comments.mentions.user', 'visibleToParty', 'attachedBy']);
+        });
+    }
+
+    /**
+     * Confirm an object exists and belongs to this Circle.
+     *
+     * Checked rather than trusted: a thread carrying a subject_id from another
+     * Circle would be readable through the Circle it sits in and would name an
+     * object nobody there can see.
+     */
+    private function resolveSubject(Circle $circle, string $subjectType, string $subjectId): ?object
+    {
+        $model = match ($subjectType) {
+            'goal'          => \App\Models\Goal::class,
+            'claim'         => \App\Models\Claim::class,
+            'decision'      => \App\Models\Decision::class,
+            'commitment'    => \App\Models\Commitment::class,
+            'evidence_item' => \App\Models\EvidenceItem::class,
+            default         => null,
+        };
+
+        if ($model === null) {
+            return null;
+        }
+
+        // Evidence reaches its Circle through its resource; everything else
+        // carries circle_id directly.
+        if ($subjectType === 'evidence_item') {
+            return \App\Models\EvidenceItem::where('id', $subjectId)
+                ->whereHas('resource', fn ($q) => $q->where('circle_id', $circle->id))
+                ->first();
+        }
+
+        return $model::where('id', $subjectId)->where('circle_id', $circle->id)->first();
     }
 
     public function resolve(CommentThread $thread, User $actor): CommentThread

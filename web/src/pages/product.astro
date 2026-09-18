@@ -1,0 +1,480 @@
+---
+/**
+ * The product page.
+ *
+ * Longer and more technical than the home page, because the second visit is
+ * usually made by the person who will have to defend the choice internally.
+ * The last section lists what is specified but not yet built. It is there
+ * deliberately: this is a product sold on the reliability of its record, and a
+ * roadmap presented as a feature list is the exact failure the product exists
+ * to prevent.
+ */
+import Marketing from "../layouts/Marketing.astro";
+import { SITE } from "../lib/site";
+
+const partyRoles = [
+  ["convener", "Opened the Circle, holds the closure right, receives the packet."],
+  ["principal", "The party the work is ultimately for."],
+  ["contractor", "Engaged to deliver a defined part of it."],
+  ["subcontractor", "Engaged by a contractor, a level down."],
+  ["advisor", "Contributes expertise without carrying delivery."],
+  ["observer", "Present on the record without contributing."],
+];
+
+const trustAxes = [
+  {
+    axis: "Origin",
+    values: ["authenticated upload", "external submission", "system import", "manual statement"],
+    body: "Where the item came from and under whose credentials. This is knowable, so it is recorded.",
+  },
+  {
+    axis: "Integrity",
+    values: ["intact", "hash mismatch", "superseded"],
+    body: "Whether the stored bytes still match the hash taken at ingest. Also knowable, and checked rather than asserted.",
+  },
+  {
+    axis: "Review",
+    values: ["unreviewed", "in review", "accepted", "contested"],
+    body: "What a human has said about it. Never inferred from the other two, and never set by an agent.",
+  },
+];
+
+const notYet = [
+  ["URL capture", "A source URL is recorded against an evidence item, but there is no fetcher, no HTML snapshot and no content hash for a captured page."],
+  ["Notification transport", "Mentions are recorded and surfaced in the application. Nothing leaves the browser yet — no email, no push. Until it does, a deadline is state somebody has to remember to go and look at."],
+  ["The action executor", "Proposals and approvals are recorded correctly. The runner that takes an approved action and performs it, honouring retries and the idempotency key, is not written."],
+  ["Party-scoped resource permissions", "“Contributors see only their branch of the tree” is a real design question rather than a column. Permissions today are Circle-wide plus per-resource overrides."],
+  ["Handoff", "Reassigning everything a departing person owns is still a hunt rather than one action."],
+  ["Packet coverage", "The export packet ends at the original object set. It does not yet read the goal tree, the comment threads or the action ledger."],
+  ["Live transcription", "Shipped as a provider interface. With no provider configured, transcripts are recorded as skipped rather than left pending. The path is untested against a live provider."],
+];
+---
+
+<Marketing
+  title="Product"
+  description="How Circle works: parties rather than guests, evidence with three separate trust axes, claims that cite exact locations, a goal tree with responsible parties, and agents bounded by a declared mandate."
+  path="/product"
+>
+  <div class="shell">
+    <header class="max-w-[54ch]">
+      <p class="eyebrow">Product</p>
+      <h1 class="editorial mt-4 text-[clamp(2.2rem,5vw,3.4rem)] text-[var(--ink)]">
+        Eight objects, <em>and the rules between them.</em>
+      </h1>
+      <p class="mt-6 text-[1.0625rem] leading-relaxed text-[var(--ink-muted)]">
+        Circle is deliberately small. A Circle holds parties, evidence, claims,
+        decisions, commitments, goals, comments and agent actions — and nothing
+        else. What makes it useful is not the object list; it is what the system
+        refuses to let those objects do to each other.
+      </p>
+    </header>
+  </div>
+
+  {/* --------------------------------------------------------------- parties */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
+      <div>
+        <p class="fieldno">01 · PARTIES</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          Nobody is a guest.
+        </h2>
+        <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Most tools model the outside world as “external users” — a lesser class
+          of person visiting somebody else's workspace. That is the wrong shape for
+          work between companies, because responsibility belongs to an organisation
+          before it belongs to a person.
+        </p>
+        <p class="mt-4 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Each participating organisation gets a party record with a commercial
+          position. A party can be named before its organisation exists on the
+          platform, because counterparties are written into a plan long before
+          anyone from them signs in. People leave projects; the company still owes
+          the deliverable, and reassigning a person must not silently move
+          liability between companies.
+        </p>
+        <p class="mt-4 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          A party role is a commercial position, not a permission set. Permissions
+          come from each member's Circle role. The party's job is to make the export
+          packet read correctly — “contractor” is worth more in a record than
+          “external”.
+        </p>
+      </div>
+
+      <div class="card overflow-hidden self-start">
+        <header class="rule-b px-5 py-3">
+          <h3 class="label">Commercial position</h3>
+        </header>
+        <dl class="register">
+          {
+            partyRoles.map(([role, meaning]) => (
+              <div class="grid grid-cols-[8rem_1fr] gap-4 px-5 py-3.5">
+                <dt class="mono text-[0.8125rem] text-[var(--ink)]">{role}</dt>
+                <dd class="text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+                  {meaning}
+                </dd>
+              </div>
+            ))
+          }
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  {/* -------------------------------------------------------------- evidence */}
+  <section class="mt-20 rule-t bg-[var(--paper-inset)] md:mt-28">
+    <div class="shell py-20">
+      <div class="max-w-[54ch]">
+        <p class="fieldno">02 · EVIDENCE</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          Three axes. Three vocabularies. <em>No green tick.</em>
+        </h2>
+        <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          A single “verified” badge collapses three unrelated questions into one
+          answer, and the answer is always slightly false. Circle keeps them apart,
+          and shows all three, always. A document is routinely
+          <span class="mono text-[0.8125rem] text-[var(--ink)]"
+            >authenticated upload · intact · unreviewed</span
+          > — and being able to say exactly that is the point.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-6 md:grid-cols-3">
+        {
+          trustAxes.map((axis) => (
+            <article class="card flex h-full flex-col p-5">
+              <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">{axis.axis}</h3>
+              <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+                {axis.body}
+              </p>
+              <ul class="mt-4 flex flex-wrap gap-1.5">
+                {axis.values.map((value) => (
+                  <li class="stamp mono" style="color: var(--ink-muted)">
+                    {value}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))
+        }
+      </div>
+
+      <div class="mt-6 grid gap-6 md:grid-cols-2">
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            Originals are never overwritten
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            A replacement is a new version pointing back at what it supersedes, so a
+            citation made in March still resolves to the exact bytes it cited in
+            March. Superseding an item does not quietly rewrite the history of every
+            claim that rested on it.
+          </p>
+        </article>
+        <article class="card derived-panel p-5">
+          <h3 class="display text-[1rem] font-[620]" style="color: var(--derived)">
+            Interpretations are separate objects
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            Every OCR pass, transcript, thumbnail and agent summary is a derived
+            artifact recording which model, which prompt version and which source
+            produced it. Derived content is indigo and labelled everywhere it
+            appears, so it cannot be mistaken for evidence at a glance.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  {/* ---------------------------------------------------------------- claims */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:gap-14">
+      <div>
+        <p class="fieldno">03 · CLAIMS AND CITATIONS</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          A citation that cannot resolve <em>is refused, not stored.</em>
+        </h2>
+        <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          A claim points at a precise location inside a specific version of a
+          specific item — a page in a PDF, a range in a named sheet, an offset in
+          seconds into a recording. The locator is validated against the media type
+          at the moment the claim is filed, so a citation nobody can follow never
+          enters the record in the first place.
+        </p>
+        <p class="mt-4 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Human claims enter as <span class="mono text-[0.8125rem]">attested</span>.
+          Agent claims enter as <span class="mono text-[0.8125rem]">derived</span>.
+          Neither is ever silently promoted; moving a claim's status is an action by
+          a named person, on the record.
+        </p>
+      </div>
+
+      <div class="card overflow-hidden self-start">
+        <header class="rule-b px-5 py-3">
+          <h3 class="label">Locator, by media type</h3>
+        </header>
+        <dl class="register">
+          <div class="px-5 py-3.5">
+            <dt class="text-[0.8125rem] text-[var(--ink)]">Document</dt>
+            <dd class="mono mt-1 text-[0.75rem] text-[var(--ink-faint)]">
+              &#123;"page": 4&#125;
+            </dd>
+          </div>
+          <div class="px-5 py-3.5">
+            <dt class="text-[0.8125rem] text-[var(--ink)]">Spreadsheet</dt>
+            <dd class="mono mt-1 text-[0.75rem] text-[var(--ink-faint)]">
+              &#123;"sheet": "Load Schedule", "range": "C2:D2"&#125;
+            </dd>
+          </div>
+          <div class="px-5 py-3.5">
+            <dt class="text-[0.8125rem] text-[var(--ink)]">Audio or video</dt>
+            <dd class="mono mt-1 text-[0.75rem] text-[var(--ink-faint)]">
+              &#123;"start_seconds": 133&#125;
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  {/* ------------------------------------------------------------ goal tree */}
+  <section class="mt-20 rule-t bg-[var(--paper-inset)] md:mt-28">
+    <div class="shell py-20">
+      <div class="max-w-[54ch]">
+        <p class="fieldno">04 · THE GOAL TREE</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          A date that can move silently <em>carries no weight.</em>
+        </h2>
+      </div>
+
+      <div class="mt-10 grid gap-6 md:grid-cols-3">
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            Sub-goals are goals
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            Each carries its own acceptance condition and its own responsible party,
+            which is exactly what happens when work is subcontracted a level down.
+            Claims, decisions and commitments can each hang off a node — or off
+            none, so a Circle that never builds a tree behaves as it always did.
+          </p>
+        </article>
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            A parent cannot claim 80%
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            Reported progress stays distinct from derived progress. A parent ignores
+            its own stored figure and averages its children, because a parent at 80%
+            over sub-goals at 20% is the precise failure a status field exists to
+            prevent.
+          </p>
+        </article>
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            Every movement of a date
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            Recorded with a reason, who moved it, and — where the move lands on
+            another party — whether that party agreed. It is its own table rather
+            than a query over the log, because a slipped date is the single most
+            common thing inter-company projects end up arguing about.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  {/* --------------------------------------------------------- conversation */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
+      <div>
+        <p class="fieldno">05 · CONVERSATION</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          There is no general channel, <em>on purpose.</em>
+        </h2>
+      </div>
+      <div class="space-y-5">
+        <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Threads hang off a goal, a claim, a decision, a commitment or an evidence
+          item. There is no room to drift into — and that is the design, not an
+          omission. Once a general channel exists, the substance migrates into it
+          and the structured record decays into something someone updates
+          afterwards out of duty.
+        </p>
+        <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Earlier versions of this product let a person speak only while changing a
+          state: a review comment, an approval note, a commitment update. That is
+          why the real conversation left for email — there was no way to ask a
+          question without committing to an action. Now a comment may carry an
+          action or carry nothing, and an object's history reads as one conversation
+          rather than two parallel records.
+        </p>
+
+        <div class="card overflow-hidden">
+          <dl class="register">
+            <div class="px-5 py-4">
+              <dt class="display text-[0.9375rem] font-[620] text-[var(--ink)]">
+                Visibility defaults to your own party
+              </dt>
+              <dd class="mt-1.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+                The opposite default from evidence, and deliberately so. Evidence is
+                what the Circle exists to pool. A contractor working out its own
+                position in front of the client is how a shared workspace stops
+                being used at all. A party-scoped thread is invisible to everyone
+                outside that party — the convener included.
+              </dd>
+            </div>
+            <div class="px-5 py-4">
+              <dt class="display text-[0.9375rem] font-[620] text-[var(--ink)]">
+                Export inclusion is per comment
+              </dt>
+              <dd class="mt-1.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+                A comment that carried a state change is part of the decision record
+                and is always in the packet. Plain discussion is out unless someone
+                marks it for the record. If every aside were discoverable in a
+                dispute, people would self-censor into uselessness and the feature
+                would be worth nothing.
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {/* ---------------------------------------------------------------- agents */}
+  <section id="agents" class="mt-20 rule-t bg-[var(--paper-inset)] md:mt-28">
+    <div class="shell py-20">
+      <div class="max-w-[56ch]">
+        <p class="fieldno" style="color: var(--derived)">06 · AGENTS</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          The verification machinery <em>is what makes execution sellable.</em>
+        </h2>
+        <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Claims, decisions and an audit chain look like paperwork right up until
+          software starts acting on your behalf in someone else's project. Two
+          companies that do not fully trust each other will not allow it unless
+          every action is attributable, bounded by a declared mandate, and
+          refusable. That is the whole argument.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-6 lg:grid-cols-2">
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            The rule the schema enforces
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            An agent proposes, and a side effect needs a human holding the authority
+            of the party that bears it. An agent never acts for “the Circle”; it acts
+            for a party, and that party carries the consequence. It cannot approve
+            anything — including its own proposal.
+          </p>
+        </article>
+
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            Mode is checked before the tool list
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            Execution mode is an outer bound evaluated in the access gate before the
+            declared actions, so a blueprint asking for more than its mode allows
+            gets nothing. Dropping an agent to <span class="mono">read_only</span> is
+            one column, and it stops everything that agent could do without editing a
+            single tool.
+          </p>
+        </article>
+
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            Classified by consequence
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            Tools are classified by what they do to the world — none, circle write,
+            external read, external write, financial — rather than by what they are
+            called. A blueprint may raise a tool's approval bar and never lower it,
+            so an author cannot mark their own payment tool as needing nobody, and
+            the rules hold for tools nobody has written yet.
+          </p>
+        </article>
+
+        <article class="card p-5">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            Bring your own agent, and your own keys
+          </h3>
+          <p class="mt-2.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            A party's agent runs under that party and its own credentials; Circle
+            never holds the raw secret. A counterparty asked to admit it is shown a
+            key fingerprint and approves that specific key, not a name anyone could
+            type. Admission is a decision on the record, not a setting in a panel.
+          </p>
+        </article>
+
+        <article class="card p-5 lg:col-span-2">
+          <h3 class="display text-[1rem] font-[620] text-[var(--ink)]">
+            The ledger is written before anything is attempted
+          </h3>
+          <p class="mt-2.5 max-w-[70ch] text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+            An action row is created at <span class="mono">proposed</span>, so a
+            refused or failed action leaves exactly the same trail as a successful
+            one — the same reason a run records its retrieval manifest before the
+            model is called. The tool key and its side effect are stored flat, so
+            the ledger still reads correctly after a blueprint is edited or a tool
+            removed. Approval reuses the decision machinery rather than inventing a
+            second one, and closure disables every agent in the Circle outright.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  {/* ---------------------------------------------------------------- notyet */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="max-w-[54ch]">
+      <p class="fieldno">07 · WHAT IS NOT BUILT YET</p>
+      <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+        Named honestly, <em>because the schema implies them.</em>
+      </h2>
+      <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+        This list is on the marketing site rather than in a footnote of a pilot
+        agreement. A product sold on the reliability of its record cannot start by
+        overstating itself, and you will find all of this in the first week
+        anyway.
+      </p>
+    </div>
+
+    <dl class="register mt-10 rule-t">
+      {
+        notYet.map(([label, detail]) => (
+          <div class="grid gap-x-8 gap-y-2 py-6 md:grid-cols-[16rem_1fr]">
+            <dt class="display text-[0.9375rem] font-[620] text-[var(--ink)]">{label}</dt>
+            <dd class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">{detail}</dd>
+          </div>
+        ))
+      }
+    </dl>
+
+    <p class="mt-8 max-w-[68ch] text-[0.8125rem] leading-relaxed text-[var(--ink-faint)]">
+      Also deliberately absent, and not planned: native chat, a freeform canvas, a
+      general agent marketplace, connectors into Drive, SharePoint, email or issue
+      trackers, verifiable credentials, blockchain anchoring, and enterprise SSO or
+      SCIM. Each is a decision with a reason rather than a gap.
+    </p>
+  </section>
+
+  {/* ------------------------------------------------------------------- cta */}
+  <section class="mt-24 rule-t sheet">
+    <div class="shell py-24 text-center">
+      <h2 class="editorial mx-auto max-w-[22ch] text-[clamp(1.9rem,4.4vw,2.9rem)] text-[var(--ink)]">
+        The fastest way to judge this <em>is on a real project.</em>
+      </h2>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href="/contact" class="btn btn-primary">Request a pilot</a>
+        <a href="/security" class="btn btn-quiet">Security overview</a>
+      </div>
+      <p class="mt-7 text-[0.8125rem] text-[var(--ink-faint)]">
+        {SITE.stage.line}
+      </p>
+    </div>
+  </section>
+</Marketing>

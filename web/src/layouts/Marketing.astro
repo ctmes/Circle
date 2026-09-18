@@ -1,0 +1,170 @@
+---
+/**
+ * The public site shell.
+ *
+ * Deliberately separate from `Base.astro`, which serves the signed-in app:
+ * these pages need canonical URLs, Open Graph, structured data and a crawlable
+ * footer, and they must not pull in the app's client router or its islands. The
+ * two layouts share `global.css`, which is the only thing they need to share
+ * for the site and the product to look like one company.
+ */
+import "../styles/marketing.css";
+import { SITE, url, isPlaceholder } from "../lib/site";
+import SiteHeader from "../components/marketing/SiteHeader.astro";
+import SiteFooter from "../components/marketing/SiteFooter.astro";
+
+interface Props {
+  /** Page title, without the product suffix. */
+  title: string;
+  /** The meta description and the Open Graph description. Keep under 160. */
+  description: string;
+  /** Site-relative path, used for the canonical link. */
+  path: string;
+  /** Legal and policy pages set this so they are not indexed as marketing. */
+  noindex?: boolean;
+  /** The home page uses its own <h1>-scale hero and wants no top padding. */
+  flush?: boolean;
+}
+
+const { title, description, path, noindex = false, flush = false } = Astro.props;
+
+/*
+  Until a real hostname is configured, no absolute URL is emitted at all. A
+  canonical of "[https://circle.example]/product" is not a placeholder a reader
+  sees and fixes — it is an invalid URL that a crawler will either ignore or,
+  worse, treat as a relative path. Better to have no canonical than a broken
+  one; robots.txt disallows the whole site in the same condition.
+*/
+const absoluteOk = !isPlaceholder(SITE.origin);
+const canonical = absoluteOk ? url(path) : null;
+const ogImage = absoluteOk ? url("/og.png") : null;
+const isHome = path === "/";
+const pageTitle = isHome ? `Circle — ${SITE.tagline.replace(/\.$/, "")}` : `${title} · Circle`;
+
+/*
+  Structured data. Only claims that are true are asserted: an Organization with
+  a name and a contact point, and the software itself. No aggregateRating and no
+  offers, because there are no reviews and no published price — inventing either
+  is the kind of thing that gets a rich result pulled and a buyer annoyed.
+*/
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": url("/#organisation"),
+      name: SITE.name,
+      legalName: SITE.legal.entity,
+      url: SITE.origin,
+      description: SITE.tagline,
+      contactPoint: [
+        {
+          "@type": "ContactPoint",
+          contactType: "sales",
+          email: SITE.email.sales,
+          areaServed: "AU",
+        },
+        {
+          "@type": "ContactPoint",
+          contactType: "technical support",
+          email: SITE.email.support,
+        },
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": url("/#website"),
+      url: SITE.origin,
+      name: SITE.name,
+      publisher: { "@id": url("/#organisation") },
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: SITE.name,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      description: SITE.tagline,
+      publisher: { "@id": url("/#organisation") },
+    },
+  ],
+};
+---
+
+<!doctype html>
+<html lang="en-AU">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    {noindex && <meta name="robots" content="noindex, follow" />}
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:locale" content="en_AU" />
+    {canonical && <meta property="og:url" content={canonical} />}
+    {
+      ogImage && (
+        <>
+          <meta property="og:image" content={ogImage} />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta name="twitter:image" content={ogImage} />
+        </>
+      )
+    }
+
+    <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+
+    <!--
+      Light is the default on the public site for the same reason it is in the
+      app: the OS setting is not consulted, and the reader's stored choice is
+      applied before first paint so there is no flash on either theme.
+    -->
+    <script is:inline>
+      try {
+        if (localStorage.getItem("circle-theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch {
+        /* Storage can be blocked entirely; light is the correct fallback. */
+      }
+    </script>
+    <meta name="theme-color" content="#fbfbfd" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />
+  </head>
+
+  <body class="min-h-screen antialiased">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-[10px] focus:bg-[var(--paper-raised)] focus:px-4 focus:py-2 focus:text-sm focus:shadow-[var(--shadow-float)]"
+    >
+      Skip to content
+    </a>
+
+    <SiteHeader />
+
+    <main id="main" class={flush ? "" : "pt-10 md:pt-16"}>
+      <slot />
+    </main>
+
+    <SiteFooter />
+  </body>
+</html>

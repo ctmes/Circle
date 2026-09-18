@@ -25,6 +25,9 @@ class NullAiProvider implements AiProvider
 
     public function generateStructured(string $systemPrompt, string $userPrompt, array $jsonSchema): AiResult
     {
-        throw new \RuntimeException('No AI provider is configured. Set ANTHROPIC_API_KEY to enable the Circle Steward.');
+        // Named generally now that any authored agent reaches this, not only
+        // the Steward — a contractor told to configure the Steward when their
+        // own agent failed would look in the wrong place.
+        throw new \RuntimeException('No AI provider is configured. Set ANTHROPIC_API_KEY to let agents run.');
     }
 }

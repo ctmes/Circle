@@ -8,6 +8,7 @@ import {
   type EvidenceVersion,
 } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
+import { EvidenceSearchPanel } from "./EvidenceSearch";
 import { PipelineMark, TrustStamp } from "./Trust";
 import {
   Button,
@@ -38,10 +39,15 @@ export function ContextView({ circleId }: { circleId: string }) {
       {(circle) => (
         <Body
           circleId={circleId}
+          party={circle?.my_access?.party ?? null}
           canUpload={
             circle?.my_access?.permissions.includes("resource.upload") === true &&
             !circle?.is_closed &&
             !circle?.is_expired
+          }
+          canCite={
+            circle?.my_access?.permissions.includes("claim.create") === true &&
+            !circle?.is_closed
           }
         />
       )}
@@ -49,7 +55,18 @@ export function ContextView({ circleId }: { circleId: string }) {
   );
 }
 
-function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean }) {
+function Body({
+  circleId,
+  canUpload,
+  canCite,
+  party,
+}: {
+  circleId: string;
+  canUpload: boolean;
+  canCite: boolean;
+  /** The company the viewer sits in, where the Circle spans several. */
+  party: { id: string; label: string } | null;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
   const [lane, setLane] = useState("");
   const [review, setReview] = useState("");
@@ -81,7 +98,11 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
       <div className="space-y-4">
-        {canUpload && <UploadDrop circleId={circleId} onUploaded={reload} />}
+        {canUpload && <UploadDrop circleId={circleId} onUploaded={reload} party={party} />}
+
+        {/* Two different questions, kept apart. The register's filter answers
+            "which item was that"; this answers "where does it say that". */}
+        <EvidenceSearchPanel circleId={circleId} onOpen={setSelected} canCite={canCite} />
 
         <Panel
           title="Evidence register"
@@ -148,6 +169,11 @@ function Body({ circleId, canUpload }: { circleId: string; canUpload: boolean })
 
                     <p className="mt-1.5 text-xs text-[var(--ink-faint)]">
                       {item.uploader.name ?? "unknown"} · {formatDate(item.created_at)}
+                      {item.restricted_to_party && (
+                        <span className="ml-2 text-[var(--signal)]">
+                          {item.restricted_to_party.label ?? "one party"} only
+                        </span>
+                      )}
                       {item.agent_read && (
                         <span className="ml-2 text-[var(--derived)]">agent-readable</span>
                       )}
@@ -238,6 +264,20 @@ function Detail({
           <Fact label="Supplied by">{item.uploader.name ?? "unknown"}</Fact>
           <Fact label="Received">{formatDate(item.created_at, true)}</Fact>
           <Fact label="Classification">{item.classification}</Fact>
+          {/*
+            Stated on every item, not only the scoped ones. "The whole Circle"
+            is the fact someone about to cite this needs to have been told, and
+            an absent row reads as an unanswered question.
+          */}
+          <Fact label="Visible to">
+            {item.restricted_to_party ? (
+              <span className="text-[var(--signal)]">
+                {item.restricted_to_party.label ?? "one party"} and the convener
+              </span>
+            ) : (
+              "the whole Circle"
+            )}
+          </Fact>
           <Fact label="Original file" mono>{current?.original_filename}</Fact>
           <Fact label="Size" mono>{formatBytes(current?.byte_size ?? null)}</Fact>
           <Fact label="SHA-256">

@@ -1,0 +1,13 @@
+# Circle — security contact (RFC 9116)
+#
+# PLACEHOLDER FILE. Replace every bracketed value before publishing, set an
+# Expires date no more than a year out, and diarise renewing it — an expired
+# security.txt is treated as no security.txt by most researchers and scanners.
+
+Contact: mailto:[security@circle.example]
+Policy: [https://circle.example]/legal/responsible-disclosure
+Preferred-Languages: en
+Expires: [2027-08-24T00:00:00.000Z]
+
+# Canonical: [https://circle.example]/.well-known/security.txt
+# Encryption: [https://circle.example]/.well-known/pgp-key.txt

@@ -79,7 +79,10 @@ class CommentController extends Controller
 
         $data = $request->validate([
             'subject_type'   => ['required', 'string', 'in:' . implode(',', CommentThread::SUBJECTS)],
-            'subject_id'     => ['required', 'string'],
+            // A general discussion is about the Circle, which the route already
+            // names, so the client does not repeat it.
+            'subject_id'     => ['required_unless:subject_type,' . CommentThread::SUBJECT_CIRCLE, 'string'],
+            'title'          => ['required_if:subject_type,' . CommentThread::SUBJECT_CIRCLE, 'nullable', 'string', 'max:200'],
             'body'           => ['required', 'string', 'max:10000'],
             'visibility'     => ['nullable', 'string', 'in:circle,party'],
             'for_the_record' => ['nullable', 'boolean'],
@@ -99,14 +102,48 @@ class CommentController extends Controller
             circle: $circle,
             author: $request->user(),
             subjectType: $data['subject_type'],
-            subjectId: $data['subject_id'],
+            subjectId: $data['subject_id'] ?? $circle->id,
             body: $data['body'],
             visibility: $visibility,
             party: $party,
             forTheRecord: (bool) ($data['for_the_record'] ?? false),
+            title: $data['title'] ?? null,
         );
 
         return response()->json(['data' => $this->present($thread)], 201);
+    }
+
+    /**
+     * Move a general discussion onto the object it turned out to be about.
+     *
+     * Gated on CommentModerate rather than CommentCreate: re-filing somebody
+     * else's conversation changes where it appears for everyone who can read
+     * it, and that is a different act from taking part in it.
+     */
+    public function attach(Request $request, CommentThread $thread): JsonResponse
+    {
+        $circle = $thread->circle;
+        $this->gate->authorise($request->user(), Permission::CommentModerate, $circle);
+
+        $membership = $this->membership($circle, $request);
+
+        // Same rule as replying: a thread you cannot read is not-found rather
+        // than forbidden, because confirming it exists is itself a leak.
+        abort_unless($thread->isReadableBy($membership), 404);
+
+        $data = $request->validate([
+            'subject_type' => ['required', 'string', 'in:' . implode(',', CommentThread::ATTACHABLE)],
+            'subject_id'   => ['required', 'string'],
+        ]);
+
+        $thread = $this->comments->attachTo(
+            thread: $thread,
+            actor: $request->user(),
+            subjectType: $data['subject_type'],
+            subjectId: $data['subject_id'],
+        );
+
+        return response()->json(['data' => $this->present($thread)]);
     }
 
     public function reply(Request $request, CommentThread $thread): JsonResponse
@@ -275,6 +312,8 @@ class CommentController extends Controller
         $payload = [
             'id'           => $thread->id,
             'subject'      => ['type' => $thread->subject_type, 'id' => $thread->subject_id],
+            'title'        => $thread->title,
+            'is_general'   => $thread->isGeneral(),
             'visibility'   => $thread->visibility->value,
             'party'        => $thread->visibleToParty?->label(),
             'status'       => $thread->status,
@@ -282,6 +321,13 @@ class CommentController extends Controller
             'last_activity_at' => $thread->last_activity_at?->toISOString(),
             'created_at'   => $thread->created_at?->toISOString(),
             'comment_count' => $thread->comments()->count(),
+            // Where it started, once it has been moved. Shown rather than
+            // hidden: a decision's conversation reading "began as a question
+            // nobody had filed yet" is true and worth saying.
+            'attached'     => $thread->wasAttached() ? [
+                'at' => $thread->attached_at?->toISOString(),
+                'by' => $thread->attachedBy?->name,
+            ] : null,
         ];
 
         if ($withComments) {

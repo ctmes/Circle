@@ -14,7 +14,7 @@ class Claim extends Model
     use HasUlids;
 
     protected $fillable = [
-        'circle_id', 'author_type', 'author_id', 'statement',
+        'circle_id', 'goal_id', 'author_type', 'author_id', 'statement',
         'claim_type', 'status', 'confidence', 'agent_run_id',
     ];
 
@@ -30,6 +30,12 @@ class Claim extends Model
     public function circle(): BelongsTo
     {
         return $this->belongsTo(Circle::class);
+    }
+
+    /** The node of the plan this is about. Null for a claim about the mission at large. */
+    public function goal(): BelongsTo
+    {
+        return $this->belongsTo(Goal::class);
     }
 
     public function citations(): HasMany

@@ -27,10 +27,20 @@ use Illuminate\Support\Facades\DB;
  */
 class GoalService
 {
-    /** Two levels is the useful case; deeper becomes a WBS nobody reads. */
-    public const MAX_DEPTH = 2;
+    /**
+     * How deep the tree may go. See config/circle.php for why it moved from
+     * two to four: subcontracting is genuinely several levels, and a cap that
+     * refuses it pushes the structure into the titles instead.
+     */
+    public static function maxDepth(): int
+    {
+        return max(1, (int) config('circle.goals.max_depth', 4));
+    }
 
-    public function __construct(private readonly AuditChain $audit) {}
+    public function __construct(
+        private readonly AuditChain $audit,
+        private readonly \App\Services\Notifications\Notifier $notifier,
+    ) {}
 
     public function create(
         Circle $circle,
@@ -46,7 +56,11 @@ class GoalService
     ): Goal {
         if ($parent !== null) {
             abort_unless($parent->circle_id === $circle->id, 422, 'The parent goal belongs to another Circle.');
-            abort_if($this->depthOf($parent) + 1 >= self::MAX_DEPTH + 1, 422, 'Goals nest two levels deep at most.');
+            abort_if(
+                $this->depthOf($parent) + 1 >= self::maxDepth(),
+                422,
+                sprintf('Goals nest %d levels deep at most.', self::maxDepth()),
+            );
         }
 
         return DB::transaction(function () use (
@@ -100,6 +114,7 @@ class GoalService
             ->only([
                 'title', 'description', 'status', 'owner_user_id',
                 'responsible_party_id', 'acceptance_condition', 'position',
+                'starts_at',
             ])
             ->all();
 
@@ -218,7 +233,7 @@ class GoalService
         ?string $reason = null,
         ?CircleParty $requiresParty = null,
     ): GoalScheduleChange {
-        return DB::transaction(function () use ($goal, $actor, $dueAt, $reason, $requiresParty) {
+        $change = DB::transaction(function () use ($goal, $actor, $dueAt, $reason, $requiresParty) {
             $from = $goal->due_at;
 
             $change = GoalScheduleChange::create([
@@ -251,6 +266,13 @@ class GoalService
 
             return $change;
         });
+
+        // The date has already moved — this records what happened rather than
+        // gating it — so this message is the counterparty finding out on the
+        // day instead of at the end of the job.
+        $this->notifier->scheduleChangeProposed($change->setRelation('goal', $goal));
+
+        return $change;
     }
 
     public function agreeReschedule(GoalScheduleChange $change, User $actor): GoalScheduleChange
@@ -274,12 +296,96 @@ class GoalService
         });
     }
 
+    /**
+     * How many ancestors a goal has. Zero for a root.
+     *
+     * The loop guard is the cap plus slack rather than the cap itself, so a row
+     * that somehow sits deeper than the cap — an old tree after the cap was
+     * lowered — is measured honestly instead of reported as being at the limit.
+     */
+    /**
+     * Move a goal to a different parent.
+     *
+     * Separate from update() because it is the one field change that can make
+     * the tree invalid rather than merely wrong. Two failures are checked and
+     * both are silent corruption if they are not:
+     *
+     * A goal cannot be moved beneath its own descendant, which would detach the
+     * whole subtree from the root and lose it from every view that walks down
+     * from the top.
+     *
+     * The move must leave the deepest node in the subtree within the cap. It is
+     * the subtree's height that matters, not the goal's own depth — moving a
+     * two-level branch one level down pushes its leaves down with it.
+     */
+    public function reparent(Goal $goal, User $actor, ?Goal $parent): Goal
+    {
+        if ($parent !== null) {
+            abort_unless($parent->circle_id === $goal->circle_id, 422, 'That parent is in another Circle.');
+            abort_if($parent->id === $goal->id, 422, 'A goal cannot be its own parent.');
+
+            $cursor = $parent;
+            $steps  = 0;
+
+            while ($cursor !== null && $steps <= self::maxDepth() + 2) {
+                abort_if($cursor->id === $goal->id, 422, 'That would move a goal underneath its own sub-goal.');
+                $cursor = $cursor->parent;
+                $steps++;
+            }
+
+            abort_if(
+                $this->depthOf($parent) + 1 + $this->heightOf($goal) >= self::maxDepth(),
+                422,
+                sprintf('That move would push sub-goals past %d levels.', self::maxDepth()),
+            );
+        }
+
+        $from = $goal->parent_goal_id;
+
+        if ($from === $parent?->id) {
+            return $goal;
+        }
+
+        return DB::transaction(function () use ($goal, $actor, $parent, $from) {
+            $goal->update([
+                'parent_goal_id' => $parent?->id,
+                'position'       => (int) Goal::where('circle_id', $goal->circle_id)
+                    ->where('parent_goal_id', $parent?->id)
+                    ->max('position') + 1,
+            ]);
+
+            $this->audit->record(
+                AuditEventType::GoalUpdated,
+                $goal->circle,
+                ActorType::User,
+                $actor->id,
+                'goal',
+                $goal->id,
+                metadata: ['moved_from_parent' => $from, 'moved_to_parent' => $parent?->id],
+            );
+
+            return $goal->fresh();
+        });
+    }
+
+    /** How many levels of sub-goal hang below this one. Zero for a leaf. */
+    public function heightOf(Goal $goal): int
+    {
+        $children = $goal->children()->get();
+
+        if ($children->isEmpty()) {
+            return 0;
+        }
+
+        return 1 + $children->max(fn (Goal $c) => $this->heightOf($c));
+    }
+
     private function depthOf(Goal $goal): int
     {
         $depth  = 0;
         $cursor = $goal;
 
-        while ($cursor->parent_goal_id !== null && $depth <= self::MAX_DEPTH + 1) {
+        while ($cursor->parent_goal_id !== null && $depth <= self::maxDepth() + 2) {
             $cursor = $cursor->parent;
             $depth++;
         }

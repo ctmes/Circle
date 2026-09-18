@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, formatDate, type AgentSummaryRow, type Member } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
+import { GrantsPanel } from "./Grants";
 import { StatusChip } from "./Trust";
 import {
   Button,
@@ -167,6 +168,8 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
           </table>
         </div>
       </Panel>
+
+      <GrantsPanel circleId={circleId} canManage={canManage} members={data.members} />
 
       {canManage && (
         <InviteForm

@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { HiringView } from "../../../components/HiringView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Hiring">
+  <HiringView client:load circleId={circleId!} />
+</Base>

@@ -25,13 +25,46 @@ const { title } = Astro.props;
       dark never sees a white flash on navigation.
     -->
     <script is:inline>
-      try {
-        if (localStorage.getItem("circle-theme") === "dark") {
-          document.documentElement.dataset.theme = "dark";
-        }
-      } catch {
-        /* Storage can be blocked entirely; light is the correct fallback. */
-      }
+      (() => {
+        const THEME_COLOR = { light: "#fbfbfd", dark: "#000000" };
+
+        const stored = () => {
+          try {
+            return localStorage.getItem("circle-theme") === "dark" ? "dark" : "light";
+          } catch {
+            /* Storage can be blocked entirely; light is the correct fallback. */
+            return "light";
+          }
+        };
+
+        const apply = (doc) => {
+          const theme = stored();
+
+          if (theme === "dark") {
+            doc.documentElement.dataset.theme = "dark";
+          } else {
+            delete doc.documentElement.dataset.theme;
+          }
+
+          doc
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute("content", THEME_COLOR[theme]);
+        };
+
+        apply(document);
+
+        /*
+          A view-transition swap replaces every attribute on <html> with the
+          incoming document's, and the head script above is deduped rather than
+          re-run — so without this the reader's choice is dropped on the first
+          tab change. Stamping the incoming document before the swap means the
+          new page is painted in the right theme, with no flash of the other.
+
+          The listener outlives the swap because `document` itself is never
+          replaced, which is also why it is registered exactly once.
+        */
+        document.addEventListener("astro:before-swap", (event) => apply(event.newDocument));
+      })();
     </script>
     <meta name="theme-color" content="#fbfbfd" />
 

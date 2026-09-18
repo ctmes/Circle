@@ -1,0 +1,299 @@
+---
+/**
+ * The security overview.
+ *
+ * Written for the person who has been handed a questionnaire, so it answers the
+ * standard questions in the standard order and then says plainly which
+ * certifications do not exist. Claiming a control that is not in place is the
+ * one thing that ends a procurement conversation permanently, and this product
+ * is sold on exactly that kind of honesty.
+ */
+import Marketing from "../layouts/Marketing.astro";
+import { SITE } from "../lib/site";
+
+const gateChecks = [
+  ["Circle status", "A closed or archived Circle grants nothing to anyone, and disables every agent in it outright."],
+  ["Membership", "The requester must hold a membership row in this Circle. Belonging to the same organisation grants nothing by itself."],
+  ["Role permission", "The action must be permitted by the member's Circle role — owner, approver, reviewer, contributor, viewer."],
+  ["Resource policy", "Per-resource overrides are applied. External parties are denied download and re-sharing by default."],
+  ["Principal type", "An agent is a first-class principal with its own row in the gate. It never borrows a person's credentials, and agent read is opt-in per item and never inherited."],
+  ["Execution mode", "For an agent, the declared mode is an outer bound checked before its tool list, so a blueprint asking for more than its mode allows gets nothing."],
+];
+
+const controls = [
+  {
+    heading: "Evidence custody",
+    items: [
+      "Originals are immutable. A replacement is a new version pointing back at what it supersedes, never an overwrite.",
+      "A content hash is taken at ingest and re-checked, so a mismatch surfaces as an integrity state rather than passing silently.",
+      "Object storage is never public. Files are reachable only through short-lived signed URLs issued after an access check.",
+      "Extraction output — OCR, transcripts, thumbnails — is stored as a separate derived artifact recording the model, prompt version and source that produced it.",
+    ],
+  },
+  {
+    heading: "The agent boundary",
+    items: [
+      "Every candidate evidence item is put through the access gate individually before a run. Refusals are logged alongside retrievals.",
+      "The retrieval manifest is written before the model is called, so what the agent saw is a record rather than a reconstruction.",
+      "The model returns structured output against a schema and cannot call anything.",
+      "Every citation is validated against that run's manifest. Output citing evidence the model was never shown is discarded, and the count of discards is recorded on the run.",
+      "Without a configured model provider, runs fail loudly and are recorded as failed. They never return an empty brief that looks like a real one.",
+    ],
+  },
+  {
+    heading: "Integrity of the record",
+    items: [
+      "The audit log is append-only and hash-chained per Circle: each event's hash covers the canonical form of the event and the previous hash.",
+      "An exported packet carries its chain, so it can be verified away from the system that produced it.",
+      "The application verifies the chain live and names the event that broke it, rather than reporting a single pass or fail.",
+      "Every access denial is written to the log with its reason, so “what was it refused” is as answerable as “what did it read”.",
+    ],
+  },
+  {
+    heading: "Platform",
+    items: [
+      "TLS in transit; encryption at rest for the database, the object store and backups.",
+      "Passwords stored only as salted hashes. API access is by bearer token, scoped to the issuing user.",
+      "Production separated from development and test. Production data is never copied into a non-production environment.",
+      "Least-privilege staff access, individually credentialled and logged.",
+    ],
+  },
+];
+
+const noCertifications = [
+  ["SOC 2 Type II", "Not held. There is no report, and no auditor engaged yet."],
+  ["ISO/IEC 27001", "Not held."],
+  ["IRAP assessment", "Not held. Relevant if you are an Australian government buyer, and worth raising early if you are."],
+  ["Penetration test", "No third-party test has been completed against the current build."],
+  ["Formal SLA", "No uptime commitment or service credits unless one is written into your order document."],
+];
+---
+
+<Marketing
+  title="Security"
+  description="How Circle protects evidence, enforces access, bounds agents and keeps its record tamper-evident — and which certifications it does not yet hold."
+  path="/security"
+>
+  <div class="shell">
+    <header class="max-w-[56ch]">
+      <p class="eyebrow">Security</p>
+      <h1 class="editorial mt-4 text-[clamp(2.2rem,5vw,3.4rem)] text-[var(--ink)]">
+        What is enforced, <em>and what is only claimed.</em>
+      </h1>
+      <p class="mt-6 text-[1.0625rem] leading-relaxed text-[var(--ink-muted)]">
+        Most of what follows is a control in code — a check in the policy gate, a
+        column in the schema, a validation that refuses to store something. The
+        last section is the other kind: the certifications and commitments that do
+        not exist yet, listed with the same prominence, because finding them out
+        in week three is worse than reading them now.
+      </p>
+    </header>
+
+    <div class="card mt-10 p-5 md:p-6">
+      <div class="grid gap-5 sm:grid-cols-3">
+        <div>
+          <p class="label">Data residency</p>
+          <p class="mt-1.5 text-[0.875rem] text-[var(--ink)]">{SITE.legal.dataRegion}</p>
+        </div>
+        <div>
+          <p class="label">Sub-processors</p>
+          <p class="mt-1.5 text-[0.875rem] text-[var(--ink)]">
+            <a href="/legal/subprocessors" class="underline underline-offset-2"
+              >Published, 30 days' notice of change</a
+            >
+          </p>
+        </div>
+        <div>
+          <p class="label">Model training on your content</p>
+          <p class="mt-1.5 text-[0.875rem] font-[560]" style="color: var(--settled)">
+            Never, ours or anyone's
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {/* ------------------------------------------------------------- the gate */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="max-w-[54ch]">
+      <p class="fieldno">01 · AUTHORISATION</p>
+      <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+        Access is an intersection, <em>never an inheritance.</em>
+      </h2>
+      <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+        There is one policy entry point. Every request runs the same checks in the
+        same order and is granted only what all of them permit. There is no path
+        that bypasses it, and there is no rule that says “same organisation,
+        therefore allowed”.
+      </p>
+    </div>
+
+    <ol class="register mt-10 rule-t">
+      {
+        gateChecks.map(([check, detail], i) => (
+          <li class="grid gap-x-8 gap-y-2 py-5 md:grid-cols-[3rem_13rem_1fr]">
+            <span class="fieldno pt-0.5">{String(i + 1).padStart(2, "0")}</span>
+            <h3 class="display text-[0.9375rem] font-[620] text-[var(--ink)]">{check}</h3>
+            <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">{detail}</p>
+          </li>
+        ))
+      }
+    </ol>
+
+    <p class="mt-6 max-w-[68ch] text-[0.8125rem] leading-relaxed text-[var(--ink-faint)]">
+      Every denial is written to the audit log with the reason it was denied. A
+      refusal is evidence too.
+    </p>
+  </section>
+
+  {/* -------------------------------------------------------------- controls */}
+  <section class="mt-20 rule-t bg-[var(--paper-inset)] md:mt-28">
+    <div class="shell py-20">
+      <div class="max-w-[54ch]">
+        <p class="fieldno">02 · CONTROLS</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          The ones that are in the code.
+        </h2>
+      </div>
+
+      <div class="mt-12 grid gap-6 lg:grid-cols-2">
+        {
+          controls.map((group) => (
+            <article class="card overflow-hidden">
+              <header class="rule-b px-5 py-3">
+                <h3 class="display text-[0.9375rem] font-[620] text-[var(--ink)]">
+                  {group.heading}
+                </h3>
+              </header>
+              <ul class="register">
+                {group.items.map((item) => (
+                  <li class="px-5 py-3.5 text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  {/* ---------------------------------------------------------- the caveat */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14">
+      <div>
+        <p class="fieldno">03 · THE HONEST CAVEAT</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          Tamper-evident is <em>not tamper-proof.</em>
+        </h2>
+      </div>
+      <div class="space-y-4">
+        <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          The hash chain proves that the Service's own event stream has not been
+          altered after the fact, and it proves it independently once a packet has
+          left the building. That is a real and useful property, and it is the one
+          being offered.
+        </p>
+        <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          It is not an independently anchored ledger. It is not a notarisation. It
+          does not prove that a file is authentic, that a photograph was taken where
+          someone says it was, or that a claim citing page four is true. The
+          interface says all of this at the point you read the chain, and this page
+          says it here, because a security overview that quietly upgrades
+          “tamper-evident” to “tamper-proof” has told you the most important lie
+          available to it.
+        </p>
+        <p class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          For the same reason there is no “verified” badge anywhere in the product.
+          Origin, integrity and review are three separate questions with three
+          separate answers, and only two of them are things software can decide.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  {/* -------------------------------------------------------- what we lack */}
+  <section class="mt-20 rule-t bg-[var(--paper-inset)] md:mt-28">
+    <div class="shell py-20">
+      <div class="max-w-[54ch]">
+        <p class="fieldno" style="color: var(--signal)">04 · WHAT WE DO NOT HAVE</p>
+        <h2 class="editorial mt-3 text-[clamp(1.75rem,3.6vw,2.4rem)] text-[var(--ink)]">
+          The list your questionnaire <em>is about to ask for.</em>
+        </h2>
+        <p class="mt-5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          If any of these is a hard requirement for you, say so in the first
+          conversation. We would rather lose an opportunity in week one than in
+          week nine.
+        </p>
+      </div>
+
+      <dl class="register mt-10 rule-t">
+        {
+          noCertifications.map(([name, status]) => (
+            <div class="grid gap-x-8 gap-y-1.5 py-5 md:grid-cols-[16rem_1fr]">
+              <dt class="display text-[0.9375rem] font-[620] text-[var(--ink)]">{name}</dt>
+              <dd class="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">{status}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+  </section>
+
+  {/* ------------------------------------------------------------ reporting */}
+  <section class="shell mt-20 md:mt-28">
+    <div class="grid gap-6 md:grid-cols-2">
+      <article class="card p-6">
+        <h2 class="display text-[1.0625rem] font-[620] text-[var(--ink)]">
+          Found something?
+        </h2>
+        <p class="mt-2.5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          We acknowledge reports within two business days and will not take legal
+          action against good-faith research that follows the policy. Cross-tenant
+          access, party isolation failures and agent boundary failures are the ones
+          we most want to hear about.
+        </p>
+        <a
+          href="/legal/responsible-disclosure"
+          class="mt-5 inline-flex items-center gap-1.5 text-[0.9375rem] font-[540]"
+          style="color: var(--accent)"
+        >
+          Responsible disclosure policy <span aria-hidden="true">→</span>
+        </a>
+      </article>
+
+      <article class="card p-6">
+        <h2 class="display text-[1.0625rem] font-[620] text-[var(--ink)]">
+          Running a security review?
+        </h2>
+        <p class="mt-2.5 text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          Send your questionnaire in whatever format you use. The technical and
+          organisational measures are set out as Annex 2 of the Data Processing
+          Addendum, which is the fastest place to start.
+        </p>
+        <div class="mt-5 flex flex-wrap gap-4">
+          <a
+            href={`mailto:${SITE.email.security}`}
+            class="inline-flex items-center gap-1.5 text-[0.9375rem] font-[540]"
+            style="color: var(--accent)"
+          >
+            {SITE.email.security}
+          </a>
+          {/*
+            Double dash is not a typo: the heading is "Annex 2 — Technical…" and
+            the slugger drops the em dash, leaving the two spaces around it as
+            two hyphens. Verified against the rendered page.
+          */}
+          <a
+            href="/legal/dpa#annex-2--technical-and-organisational-measures"
+            class="inline-flex items-center gap-1.5 text-[0.9375rem] font-[540]"
+            style="color: var(--accent)"
+          >
+            Annex 2 <span aria-hidden="true">→</span>
+          </a>
+        </div>
+      </article>
+    </div>
+  </section>
+</Marketing>

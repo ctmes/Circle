@@ -13,7 +13,10 @@ return [
     |
     */
 
-    'default' => env('QUEUE_CONNECTION', 'database'),
+    // Horizon only supervises Redis queues, and the stack ships a Redis
+    // service, so an unset QUEUE_CONNECTION should land there rather than on
+    // the database driver, whose jobs Horizon would never see.
+    'default' => env('QUEUE_CONNECTION', 'redis'),
 
     /*
     |--------------------------------------------------------------------------
@@ -68,7 +71,10 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            // Must exceed the longest supervisor `timeout` in config/horizon.php
+            // (900s, on `media`). Below it, Redis hands a still-running job to
+            // another worker and the same transcode or extraction runs twice.
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 1200),
             'block_for' => null,
             'after_commit' => false,
         ],

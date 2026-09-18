@@ -73,11 +73,17 @@ services:
     environment:
       PHP_CLI_SERVER_WORKERS: 4
 
+  # Horizon supervises one worker pool per queue (config/horizon.php), so a
+  # long transcode on `media` no longer holds up the password reset sitting
+  # behind it on `default`. Dashboard at http://localhost:8000/horizon.
   worker:
     build:
       context: ./docker/php
     working_dir: /app
-    command: php artisan queue:work --queue=media,agents,default --tries=3 --timeout=900
+    command: php artisan horizon
+    # Horizon answers SIGTERM by telling its supervisors to finish the job in
+    # hand before exiting. Compose's default 10s would SIGKILL mid-transcode.
+    stop_grace_period: 60s
     volumes:
       - ./api:/app
       # Keeping vendor/ off the Windows bind mount. Reading it through the

@@ -256,6 +256,23 @@ def main() -> int:
     print()
     check(ready, 8, "all eight originals verified and marked ready")
 
+    # processing_status flips to ready once the original is hashed and verified.
+    # Poster frames and transcription run in their own lanes and can still be in
+    # flight at that point, so the checks below would race them. Wait for those
+    # lanes to reach a terminal state — ready, skipped or failed — rather than
+    # sampling them mid-run and reporting a timing artefact as a failure.
+    print("  waiting for the derived lanes", end="", flush=True)
+    settled = ("ready", "skipped", "failed")
+    for _ in range(90):
+        vid_lane = api_data("GET", f"/evidence/{video}", gm)["current_version"]
+        aud_lane = api_data("GET", f"/evidence/{audio}", gm)["current_version"]
+        if (vid_lane.get("preview_status") in settled
+                and aud_lane.get("transcript_status") in settled):
+            break
+        print(".", end="", flush=True)
+        time.sleep(2)
+    print()
+
     # -----------------------------------------------------------------------
     say("5. Provenance, integrity and extraction")
 
@@ -462,6 +479,19 @@ def main() -> int:
     api("POST", f"/evidence/{drawing}/versions", technical,
         {"storage_key": d["key"], "filename": "drawing_rev_c.pdf"})
 
+    # The replacement goes through the same pipeline as an original, and the
+    # packet later asserts a digest for every version. Wait for it here rather
+    # than at the export, so a slow queue reads as a slow queue instead of as a
+    # missing hash.
+    print("  waiting for the replacement to be hashed", end="", flush=True)
+    for _ in range(90):
+        current = api_data("GET", f"/evidence/{drawing}", gm)["current_version"]
+        if current.get("processing_status") in ("ready", "failed"):
+            break
+        print(".", end="", flush=True)
+        time.sleep(2)
+    print()
+
     decisions = {x["id"]: x for x in api_data("GET", f"/circles/{circle}/decisions", gm)}
     check(decisions[decision_id]["status"], "superseded",
           "the approval is superseded when the subject gains a new version")
@@ -589,8 +619,13 @@ def main() -> int:
         check(audit["verification"]["valid"], True, "packet's audit chain self-verifies")
 
         manifest = json.loads(zf.read("manifest.json"))
-        check(manifest["contains_originals"], False,
-              "packet states plainly that it holds digests, not originals")
+        originals = manifest["originals"]
+        check(manifest["contains_originals"], True,
+              "packet carries the originals themselves, not only their digests")
+        check(all("reason" in o and "detail" in o for o in originals["omitted"]), True,
+              "every original that did not travel is named with the reason it did not")
+        note(f"packet carries {originals['included_count']} original(s), "
+             f"{originals['omitted_count']} omitted, cap {originals['byte_cap_human']}")
         note(f"packet is {len(blob):,} bytes across {len(names)} files")
     except zipfile.BadZipFile:
         bad("the export is not a readable zip")

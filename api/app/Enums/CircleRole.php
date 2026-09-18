@@ -37,10 +37,17 @@ enum CircleRole: string
                 Permission::GoalCreate,
                 Permission::GoalUpdate,
                 Permission::GoalAccept,
+                Permission::GoalBranch,
+                Permission::GoalMerge,
                 Permission::CommentCreate,
                 Permission::AgentRun,
                 Permission::AgentApprove,
                 Permission::ExportCreate,
+                // May post work and capture the shape of it. Awarding,
+                // engaging and attesting a record all bind the company to a
+                // counterparty, so they stay with the owner.
+                Permission::WorkPost,
+                Permission::PackagePublish,
             ],
 
             self::Reviewer => [
@@ -53,6 +60,7 @@ enum CircleRole: string
                 Permission::CommitmentCreate,
                 Permission::CommitmentUpdate,
                 Permission::GoalUpdate,
+                Permission::GoalBranch,
                 Permission::CommentCreate,
                 Permission::AgentRun,
             ],
@@ -64,6 +72,9 @@ enum CircleRole: string
                 Permission::ClaimCreate,
                 Permission::CommitmentUpdate,
                 Permission::GoalUpdate,
+                // May propose a revision, but not agree to one. Drafting is
+                // how someone without authority still gets heard.
+                Permission::GoalBranch,
                 Permission::CommentCreate,
             ],
 

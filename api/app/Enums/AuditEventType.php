@@ -12,6 +12,18 @@ enum AuditEventType: string
     case CircleClosed            = 'circle.closed';
     case CircleProgressSet       = 'circle.progress_set';
 
+    // Renaming the mission or restating its purpose. Recorded on its own
+    // rather than folded into a generic update, because every claim, decision
+    // and commitment in the packet was made under some wording of it, and a
+    // reader who cannot see which wording is reading the wrong record.
+    case CircleDetailsChanged    = 'circle.details_changed';
+
+    // A per-user permission override. Recorded separately from a role change
+    // because it is the exception, and an exception nobody can find later is
+    // indistinguishable from a mistake.
+    case PermissionGranted = 'permission.granted';
+    case PermissionRevoked = 'permission.revoked';
+
     case ResourceUploaded            = 'resource.uploaded';
     case ResourceVersionCreated      = 'resource.version_created';
     case ResourceViewed              = 'resource.viewed';
@@ -20,6 +32,7 @@ enum AuditEventType: string
     case ResourceProcessingCompleted = 'resource.processing_completed';
     case ResourceProcessingFailed    = 'resource.processing_failed';
     case ResourceMarkedStale         = 'resource.marked_stale';
+    case ResourceScopeChanged        = 'resource.scope_changed';
 
     case ClaimCreated   = 'claim.created';
     case ClaimUpdated   = 'claim.updated';
@@ -56,11 +69,23 @@ enum AuditEventType: string
     case GoalRescheduled      = 'goal.rescheduled';
     case GoalRescheduleAgreed = 'goal.reschedule_agreed';
 
+    // Proposing a revision of the plan, and the parties answering it. Kept
+    // distinct from goal.updated so the packet can show that a change was
+    // negotiated rather than simply made.
+    case BranchOpened    = 'branch.opened';
+    case BranchProposed  = 'branch.proposed';
+    case BranchApproved  = 'branch.approved';
+    case BranchRefused   = 'branch.refused';
+    case BranchMerged    = 'branch.merged';
+    case BranchWithdrawn = 'branch.withdrawn';
+
     case CommentPosted        = 'comment.posted';
     case CommentMarkedRecord  = 'comment.marked_for_record';
     case CommentDeleted       = 'comment.deleted';
     case CommentThreadOpened  = 'comment.thread_opened';
     case CommentThreadShared  = 'comment.thread_shared';
+    /** A general discussion was moved onto the object it turned out to be about. */
+    case CommentThreadAttached = 'comment.thread_attached';
 
     // The execution ledger's events. `proposed` and `rejected` matter as much
     // as `executed`: an agent that keeps asking for something it is refused is
@@ -68,6 +93,11 @@ enum AuditEventType: string
     case AgentBlueprintCreated  = 'agent.blueprint_created';
     case AgentBlueprintUpdated  = 'agent.blueprint_updated';
     case AgentBlueprintSuspended = 'agent.blueprint_suspended';
+    case AgentInstantiated      = 'agent.instantiated';
+    // Proposing a connection and admitting one are different events with
+    // different signatories. Collapsing them would let "we were shown a
+    // fingerprint" and "we accepted it" read identically in the packet.
+    case AgentConnectionProposed = 'agent.connection_proposed';
     case AgentAdmitted          = 'agent.admitted';
     case AgentRevoked           = 'agent.revoked';
     case AgentActionProposed    = 'agent.action_proposed';
@@ -76,6 +106,47 @@ enum AuditEventType: string
     case AgentActionExecuted    = 'agent.action_executed';
     case AgentActionFailed      = 'agent.action_failed';
     case AgentActionExpired     = 'agent.action_expired';
+
+    // Finding a counterparty (spec §21.1). `shortlisted` is recorded as its
+    // own event because it is the moment access changes hands — an applicant
+    // who was never shortlisted never saw the Circle, and the packet should be
+    // able to prove that rather than merely imply it.
+    case OpeningPosted        = 'opening.posted';
+    case OpeningUpdated       = 'opening.updated';
+    case OpeningClosed        = 'opening.closed';
+    case OpeningFilled        = 'opening.filled';
+    case ApplicationSubmitted = 'application.submitted';
+    case ApplicationShortlisted = 'application.shortlisted';
+    case ApplicationDeclined  = 'application.declined';
+    case ApplicationWithdrawn = 'application.withdrawn';
+    case ApplicationAwarded   = 'application.awarded';
+
+    // The temp contract (spec §21.2). Suspension and termination are distinct
+    // from completion for the same reason the statuses are: a stint that was
+    // cut short and one that ran its course must not read alike.
+    case EngagementProposed   = 'engagement.proposed';
+    case EngagementAgreed     = 'engagement.agreed';
+    case EngagementSuspended  = 'engagement.suspended';
+    case EngagementResumed    = 'engagement.resumed';
+    case EngagementCompleted  = 'engagement.completed';
+    case EngagementTerminated = 'engagement.terminated';
+    case EngagementExpired    = 'engagement.expired';
+    case EngagementMetered    = 'engagement.metered';
+
+    // The portable record (spec §21.3). Compiling and attesting are separate:
+    // the platform computes the numbers, and the counterparty signs them.
+    case RecordCompiled  = 'record.compiled';
+    case RecordAttested  = 'record.attested';
+    case RecordPublished = 'record.published';
+    case RecordHidden    = 'record.hidden';
+
+    // The durable artifact (spec §21.4).
+    case PackageCaptured     = 'package.captured';
+    case PackageInstantiated = 'package.instantiated';
+    case PackageForked       = 'package.forked';
+
+    // A mandate somebody else can hire (spec §21.6).
+    case BlueprintVersionPublished = 'agent.blueprint_version_published';
 
     case ExportCreated = 'export.created';
     case AccessDenied  = 'access.denied';

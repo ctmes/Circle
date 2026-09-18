@@ -32,11 +32,45 @@ class CircleResource extends JsonResource
             'my_role'         => $membership?->circle_role->value,
             'my_access'       => $membership === null ? null : [
                 'is_external' => $membership->is_external,
-                'permissions' => array_map(
-                    fn ($p) => $p->value,
-                    $membership->circle_role->permissions(),
-                ),
+                // The company this caller sits in. Cross-company screens need
+                // to say "this is waiting on you" rather than naming a party
+                // and leaving the reader to work out whether that means them.
+                'party'       => $membership->party === null ? null : [
+                    'id'    => $membership->party->id,
+                    'label' => $membership->party->label(),
+                ],
+                'permissions' => $this->effectivePermissions($membership),
             ],
         ];
+    }
+
+    /**
+     * What this person may actually do, role defaults *plus* their grants.
+     *
+     * Previously the role alone. That was correct while nothing could write a
+     * grant; now that they can be written, reporting only the role means a
+     * person handed `agent.author` sees no button for it — the gate would allow
+     * the action and the UI would never offer it, which reads as the grant not
+     * having worked.
+     *
+     * @return list<string>
+     */
+    private function effectivePermissions(\App\Models\CircleMembership $membership): array
+    {
+        $permissions = collect($membership->circle_role->permissions())
+            ->map(fn (\App\Enums\Permission $p) => $p->value);
+
+        $grants = \App\Models\RoleGrant::where('circle_id', $this->id)
+            ->where('user_id', $membership->user_id)
+            ->get()
+            ->filter(fn (\App\Models\RoleGrant $g) => $g->isActive());
+
+        return $permissions
+            ->merge($grants->where('allow', true)->map(fn ($g) => $g->permission->value))
+            ->reject(fn (string $p) => $grants->where('allow', false)
+                ->contains(fn ($g) => $g->permission->value === $p))
+            ->unique()
+            ->values()
+            ->all();
     }
 }

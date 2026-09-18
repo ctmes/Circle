@@ -49,6 +49,23 @@ class AgentBlueprint extends Model
         return $this->hasMany(AgentTool::class)->where('enabled', true);
     }
 
+    /**
+     * The frozen snapshots somebody may have hired (spec §21.6).
+     *
+     * The blueprint stays the living thing its author edits; a version is what
+     * was agreed. An engagement names a version, so an author cannot widen the
+     * mandate of an agent a counterparty is already paying for.
+     */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(AgentBlueprintVersion::class)->orderByDesc('version_number');
+    }
+
+    public function latestVersion(): ?AgentBlueprintVersion
+    {
+        return $this->versions()->first();
+    }
+
     public function organisation(): BelongsTo
     {
         return $this->belongsTo(Organisation::class);

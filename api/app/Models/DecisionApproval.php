@@ -12,7 +12,7 @@ class DecisionApproval extends Model
     use HasUlids;
 
     protected $fillable = [
-        'decision_id', 'actor_user_id', 'outcome',
+        'decision_id', 'actor_user_id', 'circle_party_id', 'outcome',
         'subject_type', 'subject_id', 'subject_version', 'comment', 'occurred_at',
     ];
 
@@ -24,6 +24,11 @@ class DecisionApproval extends Model
     public function decision(): BelongsTo
     {
         return $this->belongsTo(Decision::class);
+    }
+
+    public function party(): BelongsTo
+    {
+        return $this->belongsTo(CircleParty::class, 'circle_party_id');
     }
 
     public function actor(): BelongsTo

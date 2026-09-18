@@ -5,9 +5,10 @@ import {
   relativeDays,
   type Decision,
   type EvidenceItem,
+  type Goal,
   type Member,
 } from "../lib/api";
-import { CircleFrame } from "./CircleFrame";
+import { GoalChip, GoalField } from "./GoalPicker";
 import { Discussion } from "./Thread";
 import { DECISION_TONE, DerivedStamp, StatusChip } from "./Trust";
 import {
@@ -29,32 +30,16 @@ import {
  * version. Every decision states the version it is bound to, and a superseded
  * approval says so plainly rather than quietly continuing to look approved.
  */
-export function DecisionsView({ circleId }: { circleId: string }) {
-  return (
-    <CircleFrame circleId={circleId} tab="decisions">
-      {(circle) => (
-        <Body
-          circleId={circleId}
-          canCreate={
-            circle?.my_access?.permissions.includes("decision.create") === true && !circle?.is_closed
-          }
-          canApprove={
-            circle?.my_access?.permissions.includes("decision.approve") === true && !circle?.is_closed
-          }
-        />
-      )}
-    </CircleFrame>
-  );
-}
-
-function Body({
+export function DecisionsBody({
   circleId,
   canCreate,
   canApprove,
+  goals,
 }: {
   circleId: string;
   canCreate: boolean;
   canApprove: boolean;
+  goals: Goal[];
 }) {
   const [composing, setComposing] = useState(false);
   const { data, error, loading, reload } = useAsync<Decision[]>(
@@ -83,6 +68,7 @@ function Body({
       {composing && (
         <Composer
           circleId={circleId}
+          goals={goals}
           onDone={() => {
             setComposing(false);
             reload();
@@ -168,7 +154,10 @@ function Row({
         <h3 className="display max-w-2xl flex-1 text-[1.0625rem] font-[620] leading-snug">
           {decision.title}
         </h3>
-        <StatusChip status={decision.status} tone={DECISION_TONE[decision.status]} />
+        <div className="flex shrink-0 items-center gap-2">
+          <GoalChip goal={decision.goal} circleId={circleId} />
+          <StatusChip status={decision.status} tone={DECISION_TONE[decision.status]} />
+        </div>
       </div>
 
       {decision.description && (
@@ -274,7 +263,15 @@ function Row({
   );
 }
 
-function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }) {
+function Composer({
+  circleId,
+  goals,
+  onDone,
+}: {
+  circleId: string;
+  goals: Goal[];
+  onDone: () => void;
+}) {
   const { data: members } = useAsync<{ members: Member[] }>(
     () => api.get<{ data: { members: Member[] } }>(`/circles/${circleId}/members`).then((r) => r.data),
     [circleId],
@@ -288,6 +285,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
   const [description, setDescription] = useState("");
   const [approver, setApprover] = useState("");
   const [subjectId, setSubjectId] = useState("");
+  const [goalId, setGoalId] = useState("");
   const [expires, setExpires] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -302,6 +300,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
     try {
       await api.post(`/circles/${circleId}/decisions`, {
         title,
+        goal_id: goalId || undefined,
         description: description || undefined,
         approver_user_id: approver || undefined,
         subject_type: subjectId ? "evidence_item" : undefined,
@@ -359,6 +358,13 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
             />
           </Field>
         </div>
+
+        <GoalField
+          goals={goals}
+          value={goalId}
+          onChange={setGoalId}
+          hint="Which part of the plan this decides. Separate from the subject below, which is the exact artefact being approved."
+        />
 
         <Field
           label="Subject of the approval"

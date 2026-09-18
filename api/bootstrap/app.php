@@ -12,7 +12,19 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        /*
+         * Behind Caddy in production, the TLS terminates at the proxy and PHP
+         * sees a plain HTTP request from inside the Docker network. Without
+         * this, Laravel decides the application is running on http and every
+         * absolute URL it generates — including the signed storage URLs the
+         * browser is about to call — comes out with the wrong scheme.
+         *
+         * Trusting every proxy is safe here and only here: nothing reaches
+         * php-fpm except through Caddy, because in the production compose file
+         * the API binds no host port at all. On a host where that is not true,
+         * name the proxy instead.
+         */
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // This is a JSON API with no login page. Without this, an

@@ -36,10 +36,30 @@ enum Permission: string
     case GoalUpdate = 'goal.update';
     case GoalAccept = 'goal.accept';
 
+    // Proposing a revision of the plan is a different right from making one.
+    // Anyone who can contribute may draft a branch; agreeing to merge it binds
+    // a company, so it sits with the roles that can bind one — and can be
+    // delegated to a named person without moving them to that role.
+    case GoalBranch = 'goal.branch';
+    case GoalMerge  = 'goal.merge';
+
     case CommentCreate   = 'comment.create';
     case CommentModerate = 'comment.moderate';
 
     case PartyManage = 'party.manage';
+
+    // Finding a counterparty rather than already knowing one (spec §21).
+    //
+    // There is deliberately no `work.apply`. An applicant is not a member of
+    // the Circle they are applying to — that is the entire point of §21.1's
+    // admission sequence — so applying cannot be a Circle permission without
+    // pretending the applicant is already inside. It is authorised instead by
+    // the opening's visibility, which is the only thing that can answer it.
+    case WorkPost         = 'work.post';
+    case WorkAward        = 'work.award';
+    case EngagementManage = 'engagement.manage';
+    case PackagePublish   = 'package.publish';
+    case RecordAttest     = 'record.attest';
 
     // Authoring an agent is a different right from running one, and both are
     // different from letting one act. Kept separate so a Circle can allow

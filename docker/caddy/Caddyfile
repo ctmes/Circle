@@ -1,0 +1,83 @@
+# Circle — the only thing exposed to the internet.
+#
+# One domain in front of both halves. The Astro app and the Laravel API are
+# separate processes but the same origin, which means the browser's request to
+# /api never crosses an origin boundary and CORS stops being part of the
+# security story at all. Keeping them apart on two domains would have bought
+# nothing and cost a preflight on every call.
+#
+# TLS is automatic. Caddy obtains and renews certificates from Let's Encrypt on
+# its own, which is the entire reason it is here rather than nginx.
+
+{
+	email {$ACME_EMAIL}
+	# Uncomment while testing a deployment, so a broken config does not spend
+	# the real rate limit. Certificates issued here are untrusted by design.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$CIRCLE_DOMAIN} {
+	encode zstd gzip
+
+	# Sent on every response rather than per-route: a header that protects only
+	# the pages somebody remembered to list is a header that protects the pages
+	# nobody attacks.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# The API, and the health endpoint Laravel exposes at /up. Both are PHP, so
+	# both need the document root and the FastCGI upstream.
+	handle /api/* {
+		root * /app/public
+		php_fastcgi api:9000
+	}
+
+	handle /up {
+		root * /app/public
+		php_fastcgi api:9000
+	}
+
+	# Everything else is the Astro server, which renders the shell and serves
+	# the client bundles. Every view is a React island that talks to /api with
+	# the signed-in user's bearer token, so nothing here decides authorisation.
+	handle {
+		reverse_proxy web:4321
+	}
+
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50mb
+			roll_keep 10
+		}
+	}
+}
+
+# Object storage, on its own name.
+#
+# The browser uploads originals straight here using a short-lived signed URL,
+# and downloads them the same way — the bytes never pass through the API. S3
+# signatures cover the host, so this name has to be the one the API signs
+# against: set AWS_PUBLIC_ENDPOINT to exactly this origin.
+#
+# Delete this block if you point Circle at managed object storage instead
+# (S3, R2, Spaces), which is the better answer once the data matters.
+files.{$CIRCLE_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# Large uploads and long-running downloads; the default timeouts are tuned
+	# for API calls and will cut a site video off partway.
+	reverse_proxy minio:9000 {
+		flush_interval -1
+	}
+}

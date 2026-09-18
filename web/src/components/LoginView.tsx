@@ -138,6 +138,14 @@ export function LoginView() {
             >
               {busy ? "One moment…" : mode === "login" ? "Sign in" : "Create account"}
             </Button>
+
+            {mode === "login" && (
+              <p className="text-center text-[0.8125rem] text-[var(--ink-muted)]">
+                <a href="/forgot-password" className="underline underline-offset-2">
+                  Forgot your password?
+                </a>
+              </p>
+            )}
           </div>
         </form>
 

@@ -13,7 +13,8 @@ class RoleGrant extends Model
     use HasUlids;
 
     protected $fillable = [
-        'circle_id', 'user_id', 'permission', 'allow', 'granted_by_user_id', 'expires_at',
+        'circle_id', 'user_id', 'permission', 'allow', 'reason',
+        'granted_by_user_id', 'expires_at',
     ];
 
     protected function casts(): array
@@ -28,6 +29,16 @@ class RoleGrant extends Model
     public function circle(): BelongsTo
     {
         return $this->belongsTo(Circle::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function grantedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'granted_by_user_id');
     }
 
     public function isActive(): bool

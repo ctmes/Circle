@@ -2,7 +2,11 @@ import { useState } from "react";
 import {
   api,
   formatDate,
+  type AttachableSubject,
   type CommentRow,
+  type Commitment,
+  type Decision,
+  type Goal,
   type Thread as ThreadRow,
   type ThreadSubject,
 } from "../lib/api";
@@ -59,6 +63,7 @@ export function Discussion({
       {threads.map((t) => (
         <ThreadCard
           key={t.id}
+          circleId={circleId}
           thread={t}
           canComment={canComment}
           onChanged={reload}
@@ -88,11 +93,13 @@ export function Discussion({
 }
 
 function ThreadCard({
+  circleId,
   thread,
   canComment,
   onChanged,
   compact,
 }: {
+  circleId: string;
   thread: ThreadRow;
   canComment: boolean;
   onChanged: () => void;
@@ -124,8 +131,27 @@ function ThreadCard({
         thread.is_resolved ? "opacity-70" : ""
       }`}
     >
+      {/* A general thread names itself, because there is no object above it
+          doing so. Sits on its own line: it is the heading, not a chip. */}
+      {thread.title && (
+        <p className="display px-3.5 pt-3 text-[0.9375rem] font-[600] leading-snug">
+          {thread.title}
+        </p>
+      )}
+
       <header className="flex flex-wrap items-center gap-2 px-3.5 py-2.5">
         <VisibilityChip visibility={thread.visibility} party={thread.party} />
+
+        {thread.attached && (
+          <span
+            className="rounded-[var(--r-chip)] bg-[var(--paper-sunk)] px-2 py-0.5 text-xs text-[var(--ink-muted)]"
+            title={`Moved here from the general discussion${
+              thread.attached.by ? ` by ${thread.attached.by}` : ""
+            }.`}
+          >
+            Filed from discussion
+          </span>
+        )}
 
         {thread.is_resolved && (
           <span className="rounded-[var(--r-chip)] bg-[var(--settled-soft)] px-2 py-0.5 text-xs font-[560] text-[var(--settled)]">
@@ -159,6 +185,11 @@ function ThreadCard({
             >
               Resolve
             </Button>
+          )}
+          {/* Only a general thread can be filed. Something already about a
+              decision is where it belongs. */}
+          {thread.is_general && canComment && (
+            <AttachControl circleId={circleId} thread={thread} busy={busy} act={act} />
           )}
           <button
             onClick={() => setOpen((v) => !v)}
@@ -293,6 +324,111 @@ function Message({
   );
 }
 
+/**
+ * Move a general discussion onto the object it turned out to be about.
+ *
+ * The reason a general room is safe to have. §20.3 refused one because
+ * substance migrates into it and the structured record decays — true, and
+ * unavoidable, because people ask questions before there is anything to attach
+ * them to. What is avoidable is the conversation staying stranded there. One
+ * control, and the whole thread moves with every comment and marking intact.
+ *
+ * Goals first and expanded, because that is where nearly everything belongs.
+ */
+function AttachControl({
+  circleId,
+  thread,
+  busy,
+  act,
+}: {
+  circleId: string;
+  thread: ThreadRow;
+  busy: boolean;
+  act: (fn: () => Promise<unknown>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const { data, loading } = useAsync<{ type: AttachableSubject; id: string; label: string }[]>(
+    async () => {
+      if (!open) return [];
+
+      const [goals, decisions, commitments] = await Promise.all([
+        api.get<{ data: Goal[] }>(`/circles/${circleId}/goals`).then((r) => r.data),
+        api.get<{ data: Decision[] }>(`/circles/${circleId}/decisions`).then((r) => r.data),
+        api
+          .get<{ data: Commitment[] }>(`/circles/${circleId}/commitments`)
+          .then((r) => r.data),
+      ]);
+
+      // The tree arrives nested; flatten it, keeping the order somebody reads
+      // it in rather than sorting alphabetically and scattering the packages.
+      const flatGoals: { type: AttachableSubject; id: string; label: string }[] = [];
+      const walk = (nodes: Goal[], depth: number) => {
+        for (const g of nodes) {
+          if (g.id) {
+            flatGoals.push({
+              type: "goal",
+              id: g.id,
+              label: `${"— ".repeat(depth)}${g.title}`,
+            });
+          }
+          if (g.children?.length) walk(g.children, depth + 1);
+        }
+      };
+      walk(goals, 0);
+
+      return [
+        ...flatGoals,
+        ...decisions.map((d) => ({ type: "decision" as const, id: d.id, label: d.title })),
+        ...commitments.map((c) => ({ type: "commitment" as const, id: c.id, label: c.title })),
+      ];
+    },
+    [open, circleId],
+  );
+
+  if (!open) {
+    return (
+      <Button
+        variant="quiet"
+        disabled={busy}
+        title="File this conversation against the goal, decision or commitment it is about."
+        onClick={() => setOpen(true)}
+      >
+        File against…
+      </Button>
+    );
+  }
+
+  return (
+    <select
+      autoFocus
+      disabled={busy || loading}
+      defaultValue=""
+      onChange={(e) => {
+        const option = (data ?? []).find((o) => `${o.type}:${o.id}` === e.target.value);
+        if (!option) return;
+        void act(() =>
+          api.post(`/threads/${thread.id}/attach`, {
+            subject_type: option.type,
+            subject_id: option.id,
+          }),
+        );
+      }}
+      onBlur={() => setOpen(false)}
+      className="max-w-[16rem] rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper)] px-2 py-1 text-xs"
+    >
+      <option value="" disabled>
+        {loading ? "Loading…" : "Choose where this belongs"}
+      </option>
+      {(data ?? []).map((o) => (
+        <option key={`${o.type}:${o.id}`} value={`${o.type}:${o.id}`}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function Composer({
   circleId,
   subject,
@@ -305,10 +441,16 @@ function Composer({
   onCancel: () => void;
 }) {
   const [body, setBody] = useState("");
+  const [title, setTitle] = useState("");
   const [visibility, setVisibility] = useState<"party" | "circle">("party");
   const [forRecord, setForRecord] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  // A discussion about the Circle has no object to take its name from, so it
+  // has to carry one. This is the difference between a table of contents and
+  // the undifferentiated log a general room otherwise becomes.
+  const general = subject.type === "circle";
 
   async function submit() {
     setBusy(true);
@@ -317,6 +459,7 @@ function Composer({
       await api.post(`/circles/${circleId}/threads`, {
         subject_type: subject.type,
         subject_id: subject.id,
+        title: general ? title : undefined,
         body,
         visibility,
         for_the_record: forRecord,
@@ -331,6 +474,17 @@ function Composer({
 
   return (
     <div className="space-y-3 rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper-inset)] p-3.5">
+      {general && (
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={200}
+          autoFocus
+          placeholder="What is this about?"
+          className="w-full rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper)] px-3 py-2 text-[0.9375rem] font-[560] outline-none focus:border-[var(--ink-faint)]"
+        />
+      )}
+
       {/* Re-asked when the visibility toggle moves: who a mention reaches is
           decided by which thread this is about to become. */}
       <MentionTextarea
@@ -379,7 +533,11 @@ function Composer({
       {!!error && <ErrorNote error={error} />}
 
       <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || !body.trim()} onClick={submit}>
+        <Button
+          variant="primary"
+          disabled={busy || !body.trim() || (general && !title.trim())}
+          onClick={submit}
+        >
           {busy ? "Posting…" : "Post"}
         </Button>
         <Button variant="quiet" onClick={onCancel}>

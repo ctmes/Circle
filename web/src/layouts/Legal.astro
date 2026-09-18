@@ -1,0 +1,179 @@
+---
+/**
+ * The layout for every policy document.
+ *
+ * Policy pages are Markdown, not Astro components, because they are read and
+ * amended by people who should not have to touch JSX to fix a clause — and
+ * because a lawyer's redline arrives as prose.
+ *
+ * The page is framed as a controlled document: a title block carrying the
+ * document number, the version and the effective date, and a contents column
+ * built from the document's own headings. Every clause is anchored, so a
+ * counterparty can link to the one they want to argue about.
+ */
+import Marketing from "./Marketing.astro";
+import { SITE, isPlaceholder } from "../lib/site";
+
+export interface LegalFrontmatter {
+  title: string;
+  /** Meta description. Kept under 160 characters. */
+  description: string;
+  /** Site-relative path. */
+  path: string;
+  /** Short document number for the title block, e.g. "LEG-02". */
+  docNo: string;
+  /** One or two sentences, in plain language, above the document proper. */
+  summary: string;
+  /** Overrides the site-wide effective date where a document has its own. */
+  effective?: string;
+}
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+
+interface Props {
+  frontmatter: LegalFrontmatter;
+  headings?: Heading[];
+}
+
+const { frontmatter, headings = [] } = Astro.props;
+const { title, description, path, docNo, summary, effective } = frontmatter;
+
+/* Only top-level clauses go in the contents. A three-level tree of a contract
+   is a table of contents nobody reads. */
+const contents = headings.filter((heading) => heading.depth === 2);
+
+const effectiveDate = effective ?? SITE.legalEffective;
+
+/* Whether anything on this page still carries a bracketed placeholder. Shown
+   as a banner rather than hidden, because a published policy naming
+   "[Legal entity name]" is a compliance problem, not a cosmetic one. */
+const unfilled =
+  isPlaceholder(SITE.legal.entity) ||
+  isPlaceholder(SITE.legal.address) ||
+  isPlaceholder(SITE.email.privacy);
+---
+
+{/*
+  Policy pages should be findable — a buyer searching for our Terms ought to
+  land on them. They are held out of the index only while placeholders remain,
+  so the gate lifts by itself the moment site.ts is filled in.
+*/}
+<Marketing title={title} description={description} path={path} noindex={unfilled}>
+  <div class="shell pb-8">
+    <nav aria-label="Breadcrumb" class="mb-8">
+      <a
+        href="/legal"
+        class="inline-flex items-center gap-1.5 text-[0.8125rem] text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+      >
+        <span aria-hidden="true">←</span> All legal documents
+      </a>
+    </nav>
+
+    {/* The title block, in the manner of a drawing sheet. */}
+    <header class="titleblock overflow-hidden">
+      <div class="px-6 pb-5 pt-6 md:px-8 md:pb-6 md:pt-7">
+        <p class="fieldno">{docNo}</p>
+        <h1
+          class="editorial mt-3 text-[clamp(2rem,4.6vw,3rem)] leading-[1.05] text-[var(--ink)]"
+        >
+          {title}
+        </h1>
+        <p class="mt-4 max-w-[62ch] text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
+          {summary}
+        </p>
+      </div>
+
+      {/*
+        Two columns on a phone, four on anything wider. The rules are written
+        with Tailwind's border utilities rather than the .rule-* helpers because
+        the third and fourth cells need their top rule only while the grid is
+        wrapping, and a helper class cannot be turned off at a breakpoint.
+      */}
+      <dl
+        class="rule-t grid grid-cols-2 [&>div]:border-[var(--rule)] sm:grid-cols-4"
+      >
+        <div class="px-6 py-3.5 md:px-8">
+          <dt class="label">Version</dt>
+          <dd class="mono mt-1 text-[0.8125rem] text-[var(--ink)]">{SITE.legalVersion}</dd>
+        </div>
+        <div class="border-l px-6 py-3.5 md:px-8">
+          <dt class="label">Effective</dt>
+          <dd class="mt-1 text-[0.8125rem] text-[var(--ink)]">{effectiveDate}</dd>
+        </div>
+        <div class="border-t px-6 py-3.5 sm:border-l sm:border-t-0 md:px-8">
+          <dt class="label">Entity</dt>
+          <dd class="mt-1 text-[0.8125rem] text-[var(--ink)]">{SITE.legal.entity}</dd>
+        </div>
+        <div class="border-l border-t px-6 py-3.5 sm:border-t-0 md:px-8">
+          <dt class="label">Governing law</dt>
+          <dd class="mt-1 text-[0.8125rem] text-[var(--ink)]">{SITE.legal.jurisdiction}</dd>
+        </div>
+      </dl>
+    </header>
+
+    {
+      unfilled && (
+        <p
+          class="mt-6 rounded-[var(--r-card)] px-4 py-3 text-[0.8125rem] leading-relaxed"
+          style="background: var(--signal-soft); color: var(--signal)"
+          role="note"
+        >
+          <strong>Not ready to publish.</strong> This document still contains
+          unfilled placeholders and has not been reviewed by a lawyer. See{" "}
+          <code class="mono">web/PLACEHOLDERS.md</code>.
+        </p>
+      )
+    }
+
+    <div class="mt-12 grid gap-12 lg:grid-cols-[15rem_1fr] lg:gap-14">
+      {
+        contents.length > 0 && (
+          <nav aria-label="Contents" class="lg:sticky lg:top-24 lg:self-start">
+            <h2 class="label mb-3">Contents</h2>
+            <ol class="space-y-1.5">
+              {contents.map((heading, i) => (
+                <li class="flex gap-2.5">
+                  <span class="fieldno mt-[0.2rem] shrink-0 tabular-nums">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <a
+                    href={`#${heading.slug}`}
+                    class="text-[0.8125rem] leading-snug text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+                  >
+                    {heading.text.replace(/^\d+\.\s*/, "")}
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        )
+      }
+
+      <article class="legal-prose min-w-0 max-w-[68ch]">
+        <slot />
+      </article>
+    </div>
+
+    <aside class="rule-t mt-16 pt-6">
+      <p class="max-w-[68ch] text-[0.8125rem] leading-relaxed text-[var(--ink-faint)]">
+        Questions about this document go to <a
+          href={`mailto:${SITE.email.legal}`}
+          style="color: var(--accent)"
+          class="underline underline-offset-2">{SITE.email.legal}</a
+        >. Privacy requests go to <a
+          href={`mailto:${SITE.email.privacy}`}
+          style="color: var(--accent)"
+          class="underline underline-offset-2">{SITE.email.privacy}</a
+        >. Security reports go to <a
+          href="/legal/responsible-disclosure"
+          style="color: var(--accent)"
+          class="underline underline-offset-2">responsible disclosure</a
+        >.
+      </p>
+    </aside>
+  </div>
+</Marketing>

@@ -21,7 +21,11 @@ class CircleService
     /** Invitations are capability links; they should not live indefinitely. */
     private const INVITE_TTL_DAYS = 14;
 
-    public function __construct(private readonly AuditChain $audit) {}
+    public function __construct(
+        private readonly AuditChain $audit,
+        private readonly \App\Services\Work\WorkRecordService $records,
+        private readonly \App\Services\Notifications\Notifier $notifier,
+    ) {}
 
     public function create(
         Organisation $organisation,
@@ -78,7 +82,7 @@ class CircleService
         bool $isExternal = true,
         ?\DateTimeInterface $expiresAt = null,
     ): Invitation {
-        return DB::transaction(function () use ($circle, $invitedBy, $email, $role, $isExternal, $expiresAt) {
+        $invitation = DB::transaction(function () use ($circle, $invitedBy, $email, $role, $isExternal, $expiresAt) {
             $invitation = Invitation::create([
                 'circle_id'          => $circle->id,
                 'email'              => Str::lower(trim($email)),
@@ -100,6 +104,14 @@ class CircleService
 
             return $invitation;
         });
+
+        // Outside the transaction, and after it. An invitation that exists but
+        // was never delivered is recoverable — the token is still in the
+        // response and can be sent by hand. An invitation rolled back because
+        // the mailer was down is not.
+        $this->notifier->invited($invitation->setRelation('circle', $circle), $invitation->token);
+
+        return $invitation;
     }
 
     /**
@@ -181,6 +193,88 @@ class CircleService
     }
 
     /**
+     * Restates what the mission is: its name, its purpose, when it ends.
+     *
+     * These were mass-assigned on the controller until now, which meant the
+     * one screen every reader starts from — the mission statement in the
+     * header — could be rewritten without leaving a trace. That is the single
+     * change with the widest blast radius in the product: every claim,
+     * decision and commitment below it was made under some wording of the
+     * purpose, and a packet that shows only the latest wording invites the
+     * reading that they were all made under that one.
+     *
+     * So it goes through the chain like any other assertion, and it carries
+     * the full before and after rather than a note that something changed — a
+     * diff nobody can reconstruct is not evidence of anything.
+     *
+     * @param  array<string, mixed>  $changes  Any of name, purpose, expires_at, status.
+     */
+    public function updateDetails(Circle $circle, User $actor, array $changes, ?string $reason = null): Circle
+    {
+        $fields = array_intersect_key($changes, array_flip(['name', 'purpose', 'expires_at', 'status']));
+
+        if ($fields === []) {
+            return $circle;
+        }
+
+        return DB::transaction(function () use ($circle, $actor, $fields, $reason) {
+            $diff = [];
+
+            foreach ($fields as $field => $value) {
+                $before = $this->presentField($circle, $field);
+                $circle->fill([$field => $value]);
+                $after = $this->presentField($circle, $field);
+
+                if ($before === $after) {
+                    continue;
+                }
+
+                $diff[$field] = ['from' => $before, 'to' => $after];
+            }
+
+            // Nothing actually moved. Writing the event anyway would put a
+            // change in the history that a reader could not tell from a real
+            // one, which is worse than not recording the request at all.
+            if ($diff === []) {
+                $circle->discardChanges();
+
+                return $circle;
+            }
+
+            $circle->save();
+
+            $this->audit->record(
+                AuditEventType::CircleDetailsChanged, $circle, ActorType::User, $actor->id,
+                'circle', $circle->id, metadata: [
+                    'changes' => $diff,
+                    'fields'  => array_keys($diff),
+                    'reason'  => $reason,
+                ],
+            );
+
+            return $circle;
+        });
+    }
+
+    /**
+     * The value as the record should hold it — a string, a timestamp in a
+     * fixed format, or null. Compared before and after the fill so that
+     * "2026-01-01" and "2026-01-01T00:00:00+00:00" are recognised as the same
+     * deadline rather than logged as a move.
+     */
+    private function presentField(Circle $circle, string $field): ?string
+    {
+        $value = $circle->{$field};
+
+        return match (true) {
+            $value === null                       => null,
+            $value instanceof \DateTimeInterface  => $value->format(DATE_ATOM),
+            $value instanceof \BackedEnum         => (string) $value->value,
+            default                               => (string) $value,
+        };
+    }
+
+    /**
      * Records how far along the mission is, as a whole percent.
      *
      * This is a statement by someone who runs the Circle, not a count of closed
@@ -239,11 +333,24 @@ class CircleService
             AgentInstance::where('circle_id', $circle->id)
                 ->update(['status' => 'disabled', 'disabled_at' => now()]);
 
+            // Everyone who was engaged here carries something away (spec
+            // §21.3). Compiled at closure rather than by a later job, because
+            // this is the moment the Circle stops being readable and the
+            // record is compiled *from* it — an engagement whose record was
+            // never written is work that stops having happened.
+            //
+            // An engagement nobody formally ended is expired rather than
+            // completed. Neither side said how it finished, and writing
+            // "completed" on their behalf would be inventing somebody's
+            // history for them.
+            $records = $this->records->compileForClosure($circle, $actor);
+
             $this->audit->record(
                 AuditEventType::CircleClosed, $circle, ActorType::User, $actor->id,
                 'circle', $circle->id, metadata: [
                     'reason'                        => $reason,
                     'external_memberships_revoked'  => $externals->count(),
+                    'work_records_compiled'         => $records,
                 ],
             );
 

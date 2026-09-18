@@ -1,0 +1,17 @@
+---
+/**
+ * The one screen outside a Circle (spec §21).
+ *
+ * Everything else in the app answers "what is happening in this mission".
+ * This answers what a mission cannot: what work is open to me, what am I
+ * contracted to do, and what have I done before. The first two span several
+ * Circles and the third outlives them.
+ */
+import Base from "../layouts/Base.astro";
+import { MarketView } from "../components/MarketView";
+
+export const prerender = false;
+---
+<Base title="Work">
+  <MarketView client:load />
+</Base>

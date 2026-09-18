@@ -39,6 +39,13 @@ export function CircleListView() {
         <div className="mx-auto flex max-w-[900px] items-center justify-between px-6 py-3">
           <Wordmark size={17} />
           <div className="flex items-center gap-1">
+            {/* Open work, contracts and the record — none of which is a Circle. */}
+            <a
+              href="/work"
+              className="rounded-[var(--r-control)] px-2.5 py-1.5 text-[0.8125rem] text-[var(--ink-muted)] no-underline transition-colors hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)]"
+            >
+              Work
+            </a>
             <ThemeToggle />
             <button
               onClick={() => {

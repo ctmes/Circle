@@ -5,18 +5,33 @@ namespace App\Services\Agent;
 use App\Models\Circle;
 
 /**
- * The Circle Steward's mandate, output schema and prompt construction.
+ * The Circle Steward's mandate and prompt construction.
  *
  * The prompt version is recorded on every run and every derived artifact, so a
  * brief produced six months ago can be traced to the exact instructions that
  * produced it.
+ *
+ * The response schema is not built here. It used to be — a second, hand-kept
+ * copy of what OutputSchema already assembles, identical field for field, which
+ * meant every change to the agent contract had to be made twice or the two
+ * agents would quietly disagree about what a brief is.
  */
-class StewardPrompt
+class StewardPrompt implements AgentPromptContract
 {
     /** Bump whenever the system prompt or schema changes materially. */
-    public const VERSION = 'steward-2026-08-22.1';
+    public const VERSION = 'steward-2026-09-16.1';
 
     public const DERIVED_LABEL = 'Derived by agent; requires human review';
+
+    public function version(): string
+    {
+        return self::VERSION;
+    }
+
+    public function derivedLabel(): string
+    {
+        return self::DERIVED_LABEL;
+    }
 
     public function systemPrompt(): string
     {
@@ -75,103 +90,14 @@ class StewardPrompt
     }
 
     /**
-     * The response schema (spec §9). `additionalProperties: false` everywhere
-     * keeps the model from inventing fields the application would ignore.
+     * The response schema (spec §9), from the one builder both agents share.
+     *
+     * No tools: the Steward proposes and drafts, it does not execute, so there
+     * is no `tool_calls` branch for it to fill in.
      */
     public function outputSchema(): array
     {
-        return [
-            'type'                 => 'object',
-            'additionalProperties' => false,
-            'required'             => ['summary', 'status', 'claims', 'decision_drafts', 'missing_evidence'],
-            'properties'           => [
-                'summary' => [
-                    'type'        => 'string',
-                    'description' => 'A short mission-state summary for the Circle overview. Lead with blockers.',
-                ],
-                'status' => [
-                    'type'        => 'string',
-                    'enum'        => ['on_track', 'at_risk', 'blocked', 'insufficient_evidence'],
-                    'description' => 'Overall mission state as supported by the evidence supplied.',
-                ],
-                'uncertainty' => [
-                    'type'        => 'string',
-                    'description' => 'What you could not determine and why. State this plainly.',
-                ],
-                'claims' => [
-                    'type'  => 'array',
-                    'items' => [
-                        'type'                 => 'object',
-                        'additionalProperties' => false,
-                        'required'             => ['statement', 'claim_type', 'confidence', 'citations'],
-                        'properties'           => [
-                            'statement'  => ['type' => 'string'],
-                            'claim_type' => [
-                                'type' => 'string',
-                                'enum' => ['factual', 'technical_assessment', 'commercial_assessment', 'risk', 'recommendation'],
-                            ],
-                            'confidence' => ['type' => 'number', 'minimum' => 0, 'maximum' => 1],
-                            'citations'  => [
-                                'type'     => 'array',
-                                'minItems' => 1,
-                                'items'    => [
-                                    'type'                 => 'object',
-                                    'additionalProperties' => false,
-                                    'required'             => ['evidence_version_id'],
-                                    'properties'           => [
-                                        'evidence_version_id' => ['type' => 'string'],
-                                        'excerpt'             => ['type' => 'string'],
-                                        'locator'             => [
-                                            'type'                 => 'object',
-                                            'additionalProperties' => true,
-                                            'description'          => 'Precise location, e.g. {"page": 4} or {"sheet": "Loads", "range": "B7:D7"} or {"start_seconds": 133}.',
-                                        ],
-                                    ],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                'decision_drafts' => [
-                    'type'  => 'array',
-                    'items' => [
-                        'type'                 => 'object',
-                        'additionalProperties' => false,
-                        'required'             => ['title', 'description'],
-                        'properties'           => [
-                            'title'                   => ['type' => 'string'],
-                            'description'             => ['type' => 'string'],
-                            'suggested_approver_role' => ['type' => 'string'],
-                            'blocking'                => ['type' => 'boolean'],
-                        ],
-                    ],
-                ],
-                'missing_evidence' => [
-                    'type'  => 'array',
-                    'items' => [
-                        'type'                 => 'object',
-                        'additionalProperties' => false,
-                        'required'             => ['description'],
-                        'properties'           => [
-                            'description' => ['type' => 'string'],
-                            'why_it_matters' => ['type' => 'string'],
-                        ],
-                    ],
-                ],
-                'potentially_stale' => [
-                    'type'  => 'array',
-                    'items' => [
-                        'type'                 => 'object',
-                        'additionalProperties' => false,
-                        'required'             => ['evidence_item_id', 'reason'],
-                        'properties'           => [
-                            'evidence_item_id' => ['type' => 'string'],
-                            'reason'           => ['type' => 'string'],
-                        ],
-                    ],
-                ],
-            ],
-        ];
+        return OutputSchema::build();
     }
 
     /**
@@ -179,8 +105,6 @@ class StewardPrompt
      */
     public function userPrompt(Circle $circle, array $sources, array $openQuestions = []): string
     {
-        $staleDays = (int) config('circle.staleness.after_days');
-
         $header = sprintf(
             "MISSION\nName: %s\nPurpose: %s\nStatus: %s\nExpires: %s\nToday: %s\n",
             $circle->name,
@@ -203,12 +127,14 @@ class StewardPrompt
             $body .= $this->renderSource($i + 1, $source);
         }
 
+        // No "flag anything older than N days" instruction here any more. Ages
+        // are given per source above and the threshold comparison is done in
+        // EvidenceStaleness, where it is deterministic and free.
         $tail = "\nTASK\n"
             . "1. Summarise the mission state, leading with blockers and contradictions.\n"
             . "2. Produce claims that each cite at least one evidence_version_id listed above.\n"
             . "3. Draft the decisions a human must make, and say who should decide.\n"
-            . "4. List evidence that is missing and why it matters.\n"
-            . sprintf("5. Flag items older than %d days that look like they may no longer be current.\n", $staleDays);
+            . "4. List evidence that is missing and why it matters.\n";
 
         if ($openQuestions !== []) {
             $tail .= "\nOPEN QUESTIONS FROM THE TEAM\n- " . implode("\n- ", $openQuestions) . "\n";

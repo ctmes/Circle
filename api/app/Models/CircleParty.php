@@ -62,6 +62,22 @@ class CircleParty extends Model
         return $this->status->isActive() && $this->withdrawn_at === null;
     }
 
+    /**
+     * The convening party of a Circle, or null for a Circle that predates
+     * parties and has not been read through PartyController yet.
+     *
+     * Three call sites decide visibility from this — the membership fallback,
+     * private comment threads and party-scoped evidence — and they have to
+     * agree, or someone restricts something they cannot then read.
+     */
+    public static function convenerIdFor(string $circleId): ?string
+    {
+        return static::query()
+            ->where('circle_id', $circleId)
+            ->where('is_convener', true)
+            ->value('id');
+    }
+
     /** The real organisation name once bound, the placeholder until then. */
     public function label(): string
     {
