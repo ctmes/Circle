@@ -33,7 +33,14 @@ services:
     environment:
       MINIO_ROOT_USER: circle
       MINIO_ROOT_PASSWORD: circlecircle
-    ports: ["59000:9000", "59001:9001"]
+    # Published below the ephemeral range on purpose. These were 59000/59001,
+    # which land inside the port block Windows reserves for the Hyper-V NAT
+    # (58826-59645 here) — Docker cannot bind them, MinIO never starts, and
+    # because the API waits on its health check the whole stack stays down with
+    # an error that names a socket rather than a reserved range. Anything under
+    # 49152 is outside what Windows hands out dynamically, so 19000/19001 stay
+    # bindable across reboots while still reading as MinIO's own 9000/9001.
+    ports: ["19000:9000", "19001:9001"]
     volumes: ["miniodata:/data"]
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]

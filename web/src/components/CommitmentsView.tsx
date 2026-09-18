@@ -24,11 +24,21 @@ export function CommitmentsBody({
   canCreate,
   canUpdate,
   goals,
+  goalId = null,
 }: {
   circleId: string;
   canCreate: boolean;
   canUpdate: boolean;
   goals: Goal[];
+  /**
+   * Narrow the list to one node of the plan, and file new records there.
+   *
+   * Set only by the job screen. The composer's goal picker goes with it:
+   * somebody recording this from inside a package has already answered "what
+   * is this about", and asking again invites an answer that contradicts the
+   * screen they are standing on.
+   */
+  goalId?: string | null;
 }) {
   const [composing, setComposing] = useState(false);
   const { data, error, loading, reload, mutate } = useAsync<Commitment[]>(
@@ -66,6 +76,7 @@ export function CommitmentsBody({
         <Composer
           circleId={circleId}
           goals={goals}
+          fixedGoalId={goalId}
           onDone={() => {
             setComposing(false);
             reload();
@@ -82,7 +93,7 @@ export function CommitmentsBody({
         }
       >
         {open.length === 0 ? (
-          <Empty>Nobody owes anything right now.</Empty>
+          <Empty>Nothing outstanding right now.</Empty>
         ) : (
           open.map((c, i) => (
             <Row
@@ -227,10 +238,13 @@ function Row({
 function Composer({
   circleId,
   goals,
+  fixedGoalId = null,
   onDone,
 }: {
   circleId: string;
   goals: Goal[];
+  /** Set on the job screen: the node is decided, so it is stated, not asked. */
+  fixedGoalId?: string | null;
   onDone: () => void;
 }) {
   const { data: members } = useAsync<{ members: Member[] }>(
@@ -242,7 +256,7 @@ function Composer({
   const [condition, setCondition] = useState("");
   const [owner, setOwner] = useState("");
   const [due, setDue] = useState("");
-  const [goalId, setGoalId] = useState("");
+  const [goalId, setGoalId] = useState(fixedGoalId ?? "");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -277,7 +291,9 @@ function Composer({
           />
         </Field>
 
-        <GoalField goals={goals} value={goalId} onChange={setGoalId} />
+        {fixedGoalId === null && (
+          <GoalField goals={goals} value={goalId} onChange={setGoalId} />
+        )}
 
         <Field
           label="Acceptance condition"

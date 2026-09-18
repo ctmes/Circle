@@ -24,13 +24,13 @@ export function AcceptInvite({ token }: { token: string }) {
     <main className="grid min-h-screen place-items-center px-6">
       <div className="w-full max-w-md">
         {error ? (
-          <Panel title="This invitation could not be used" tone="signal">
+          <Panel title="This invitation didn't work" tone="signal">
             <div className="px-5 pb-5">
               <ErrorNote error={error} />
               <p className="mt-3 text-sm text-[var(--ink-muted)]">
-                Invitations are bound to the email address they were issued to,
-                expire after 14 days, and can only be used once. Ask the Circle
-                owner to send a new one.
+                An invitation only works for the address it was sent to, expires
+                after 14 days, and can be used once. Ask the Circle owner for a
+                new one.
               </p>
             </div>
           </Panel>

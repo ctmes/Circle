@@ -12,6 +12,12 @@ enum AuditEventType: string
     case CircleClosed            = 'circle.closed';
     case CircleProgressSet       = 'circle.progress_set';
 
+    // Taking a Circle out of everyone's reach, and bringing it back. Both land
+    // on the Circle's own chain, which deletion leaves intact, so a restored
+    // Circle's history says it was gone and for how long.
+    case CircleDeleted           = 'circle.deleted';
+    case CircleRestored          = 'circle.restored';
+
     // Renaming the mission or restating its purpose. Recorded on its own
     // rather than folded into a generic update, because every claim, decision
     // and commitment in the packet was made under some wording of it, and a
@@ -68,6 +74,14 @@ enum AuditEventType: string
     // a diff of two generic update events.
     case GoalRescheduled      = 'goal.rescheduled';
     case GoalRescheduleAgreed = 'goal.reschedule_agreed';
+
+    // Filing a document against a piece of work, and taking it off again.
+    // Recorded because the filing is itself a claim about relevance: "this
+    // drawing is what that package was built to" is a statement somebody made
+    // on a date, and an argument about the work later is an argument about
+    // exactly that.
+    case GoalEvidenceAttached = 'goal.evidence_attached';
+    case GoalEvidenceDetached = 'goal.evidence_detached';
 
     // Proposing a revision of the plan, and the parties answering it. Kept
     // distinct from goal.updated so the packet can show that a change was
@@ -147,6 +161,14 @@ enum AuditEventType: string
 
     // A mandate somebody else can hire (spec §21.6).
     case BlueprintVersionPublished = 'agent.blueprint_version_published';
+
+    // Convening from an engagement of terms (spec 23). Two events, because
+    // they are two acts by two different kinds of actor: the agent read a
+    // document and proposed a shape, and a person accepted some version of
+    // it. A record that collapsed them would read as though the software
+    // wrote the plan.
+    case CircleConvened     = 'circle.convened';
+    case CirclePlanAccepted = 'circle.plan_accepted';
 
     case ExportCreated = 'export.created';
     case AccessDenied  = 'access.denied';

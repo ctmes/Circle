@@ -167,6 +167,18 @@ export interface EvidenceItem {
   };
 }
 
+/**
+ * An evidence item as a job lists it.
+ *
+ * The vault row, plus who filed it against this piece of work. The second fact
+ * is not the first: "Sam attached this on the 14th" and "Sam uploaded it in
+ * March" are different acts, and on a job that has pulled in a document from
+ * elsewhere in the Circle the filing is what explains why it is on the screen.
+ */
+export interface FiledEvidence extends EvidenceItem {
+  filed: { by: string | null; name: string | null; at: string | null };
+}
+
 export interface Citation {
   id: string;
   evidence_version_id: string;

@@ -93,8 +93,8 @@ function Body({
       <Panel title="Open">
         {live.length === 0 ? (
           <Empty>
-            Nothing posted. Work in the plan with nobody answerable for it can be offered
-            outside the Circle from here.
+            Nothing posted yet. Any work in the plan that isn't assigned to a company
+            can be offered outside the Circle from here.
           </Empty>
         ) : (
           live.map((o) => (
@@ -278,8 +278,8 @@ function Bid({
           */}
           {bid.branch_status === "draft" ? (
             <p className="text-xs text-[var(--ink-soft)]">
-              Admitted to this work. Waiting for them to propose their assignment —
-              you cannot award it until they do.
+              They're in. Now they need to propose their assignment — you can't
+              award the work until they do.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -308,9 +308,9 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  // Only work with nobody answerable for it can be offered. Posting something
-  // a company already holds is either a mistake or a re-tender, and the API
-  // refuses it — so the picker refuses it first.
+  // Only unassigned work can be offered. Posting something a company already
+  // holds is either a mistake or a re-tender, and the API refuses it — so the
+  // picker refuses it first.
   const goals = useAsync<Array<{ id: string; title: string; responsible_party: any }>>(
     () => api.get<{ data: any[] }>(`/circles/${circleId}/goals`).then((r) => flatten(r.data)),
     [circleId],
@@ -351,7 +351,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
 
         <Field
           label="The work"
-          hint="Only work nobody is answerable for yet can be offered. An applicant sees this title and nothing else about the plan."
+          hint="Only work that isn't assigned to a company yet can be offered. Applicants see this title and nothing else about the plan."
         >
           <select className={inputClass} value={goalId} onChange={(e) => setGoalId(e.target.value)}>
             <option value="">Not tied to the plan yet</option>
@@ -402,7 +402,7 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
 
         <Field
           label="Who can see it"
-          hint="Companies you have completed work with, by default. A public posting reaches anyone signed in, and cannot be narrowed again once bids are in."
+          hint="By default, companies you have completed work with. A public posting reaches anyone signed in, and you can't narrow it again once bids are in."
         >
           <select
             className={inputClass}
@@ -426,8 +426,8 @@ function Composer({ circleId, onDone }: { circleId: string; onDone: () => void }
         </div>
 
         <p className="text-xs text-[var(--ink-faint)]">
-          Drafts are invisible to everybody else. Publishing is a second step, because
-          this is the first thing about your project a stranger will see.
+          Nobody else can see a draft. Publishing is a separate step, because this is
+          the first thing about your project a stranger will see.
         </p>
       </div>
     </Panel>

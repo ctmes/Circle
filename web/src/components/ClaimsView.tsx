@@ -35,17 +35,30 @@ export function ClaimsBody({
   canCreate,
   canReview,
   goals,
+  goalId = null,
 }: {
   circleId: string;
   canCreate: boolean;
   canReview: boolean;
   goals: Goal[];
+  /**
+   * Narrow the list to one node of the plan, and file new records there.
+   *
+   * Set only by the job screen. The composer's goal picker goes with it:
+   * somebody recording this from inside a package has already answered "what
+   * is this about", and asking again invites an answer that contradicts the
+   * screen they are standing on.
+   */
+  goalId?: string | null;
 }) {
   const [composing, setComposing] = useState(false);
   const [pinned, setPinned] = useState<CiteIntent | null>(null);
   const { data, error, loading, reload } = useAsync<Claim[]>(
-    () => api.get<{ data: Claim[] }>(`/circles/${circleId}/claims`).then((r) => r.data),
-    [circleId],
+    () =>
+      api
+        .get<{ data: Claim[] }>(`/circles/${circleId}/claims${goalId ? `?goal=${goalId}` : ""}`)
+        .then((r) => r.data),
+    [circleId, goalId],
   );
 
   /*
@@ -94,6 +107,7 @@ export function ClaimsBody({
         <ClaimComposer
           circleId={circleId}
           goals={goals}
+          fixedGoalId={goalId}
           pinned={pinned}
           onUnpin={() => setPinned(null)}
           onDone={() => {
@@ -114,8 +128,8 @@ export function ClaimsBody({
       >
         {claims.length === 0 ? (
           <Empty>
-            No claims yet. A claim is an assertion someone is willing to put their
-            name to, backed by exact evidence.
+            No claims yet. A claim is a statement someone puts their name to,
+            backed by a specific piece of evidence.
           </Empty>
         ) : (
           <ul>
@@ -195,7 +209,7 @@ function ClaimRow({
           {claim.confidence !== null && (
             <span
               className="rounded-[var(--r-chip)] bg-[var(--paper-sunk)] px-2 py-0.5 text-[var(--ink-muted)]"
-              title="How well the author says the evidence supports this — not a measure of correctness."
+              title="How strongly the author thinks the evidence backs this up. It is not a measure of whether it is right."
             >
               {Math.round(claim.confidence * 100)}% confidence
             </span>
@@ -224,7 +238,7 @@ function ClaimRow({
                 {c.evidence?.integrity_status === "superseded" && (
                   <span
                     className="text-xs text-[var(--ink-faint)]"
-                    title="A newer version of the cited evidence exists. This citation still resolves to the version that was cited."
+                    title="There is a newer version of this evidence. The citation still points at the version that was cited."
                   >
                     (superseded version)
                   </span>
@@ -303,12 +317,15 @@ function ClaimRow({
 function ClaimComposer({
   circleId,
   goals,
+  fixedGoalId = null,
   pinned = null,
   onUnpin,
   onDone,
 }: {
   circleId: string;
   goals: Goal[];
+  /** Set on the job screen: the node is decided, so it is stated, not asked. */
+  fixedGoalId?: string | null;
   pinned?: CiteIntent | null;
   onUnpin?: () => void;
   onDone: () => void;
@@ -320,7 +337,7 @@ function ClaimComposer({
 
   const [statement, setStatement] = useState("");
   const [type, setType] = useState("factual");
-  const [goalId, setGoalId] = useState("");
+  const [goalId, setGoalId] = useState(fixedGoalId ?? "");
   const [versionId, setVersionId] = useState("");
   const [locator, setLocator] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
@@ -384,7 +401,7 @@ function ClaimComposer({
       <div className="space-y-4 px-5 pb-5">
         <Field
           label="Statement"
-          hint="Say one thing that the evidence can support. Interpretations belong in an assessment type, not a factual claim."
+          hint="Say one thing the evidence can back up. If it is an interpretation, pick an assessment type rather than factual."
         >
           <textarea
             value={statement}
@@ -407,7 +424,7 @@ function ClaimComposer({
           </Field>
 
           {pinned ? (
-            <Field label="Evidence cited" hint="Carried from search, so it resolves exactly.">
+            <Field label="Evidence cited" hint="Carried over from search, so it points at the exact spot.">
               <div className="rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3 py-2 shadow-[inset_0_0_0_1px_var(--rule-strong)]">
                 <p className="mono text-[0.8125rem] font-[600] text-[var(--ink)]">{pinned.label}</p>
                 <p className="mt-0.5 text-xs text-[var(--ink-muted)]">{pinned.source}</p>
@@ -436,7 +453,9 @@ function ClaimComposer({
           )}
         </div>
 
-        <GoalField goals={goals} value={goalId} onChange={setGoalId} />
+        {fixedGoalId === null && (
+          <GoalField goals={goals} value={goalId} onChange={setGoalId} />
+        )}
 
         {pinned && (
           <div className="rounded-[var(--r-control)] border border-[var(--rule)] px-3.5 py-3">
@@ -450,7 +469,7 @@ function ClaimComposer({
                 Cite something else
               </Button>
               <span className="text-xs text-[var(--ink-faint)]">
-                The passage is kept with the citation as its excerpt.
+                This passage is saved with the citation.
               </span>
             </div>
           </div>
@@ -521,7 +540,7 @@ function ClaimComposer({
           </Button>
           {!versionId && !pinned && (
             <span className="text-xs text-[var(--ink-muted)]">
-              A claim with no citation can be recorded, but it carries no weight.
+              You can record a claim with no citation, but it won't carry much weight.
             </span>
           )}
         </div>

@@ -7,6 +7,7 @@ use App\Enums\AuditEventType;
 use App\Enums\CommitmentStatus;
 use App\Enums\DecisionStatus;
 use App\Models\Circle;
+use App\Models\CircleParty;
 use App\Models\Commitment;
 use App\Models\CommitmentUpdate;
 use App\Models\Decision;
@@ -187,6 +188,15 @@ class DecisionService
         ?string $acceptanceCondition = null,
         CommitmentStatus $status = CommitmentStatus::Open,
         ?Goal $goal = null,
+        /**
+         * The company that owes this, where no individual has been named.
+         *
+         * A deliverable read out of a contract is owed by a party — the
+         * counterparty has not told us which of their people will do it, and
+         * inventing an owner_user_id would put a name against an obligation
+         * nobody at that company has agreed to carry.
+         */
+        ?CircleParty $ownerParty = null,
     ): Commitment {
         $commitment = Commitment::create([
             'circle_id'            => $circle->id,
@@ -199,6 +209,7 @@ class DecisionService
             'acceptance_condition' => $acceptanceCondition,
             'status'               => $status,
             'owner_user_id'        => $owner?->id,
+            'owner_party_id'       => $ownerParty?->id,
             'created_by_user_id'   => $creator->id,
             'created_by_type'      => 'user',
             'due_at'               => $dueAt,
@@ -209,6 +220,7 @@ class DecisionService
             'commitment', $commitment->id, metadata: [
                 'title'   => $title,
                 'owner'   => $owner?->id,
+                'party'   => $ownerParty?->label(),
                 'goal_id' => $goal?->id,
                 'due_at'  => $dueAt?->format(DATE_ATOM),
             ],

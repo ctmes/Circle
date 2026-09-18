@@ -39,17 +39,17 @@ const GRANTABLE: Array<{ value: string; label: string; note: string }> = [
   {
     value: "agent.connect",
     label: "Bring in an agent",
-    note: "Register an agent their company operates. Admitting it stays an owner's call.",
+    note: "Register an agent their company runs. Letting it in is still an owner's call.",
   },
   {
     value: "agent.run",
     label: "Run agents",
-    note: "Trigger a run. What the agent may do is still bounded by its mode.",
+    note: "Start a run. What the agent can do is still limited by its mode.",
   },
   {
     value: "agent.approve",
     label: "Approve agent actions",
-    note: "Decide on what agents propose, within the role each action demands.",
+    note: "Approve or refuse what agents propose, as far as their role allows.",
   },
   {
     value: "export.create",
@@ -123,8 +123,7 @@ export function GrantsPanel({
       {!loading && grants.length === 0 ? (
         <Empty>
           Nobody has anything beyond what their role gives them. That is the
-          state worth keeping — an exception is a thing somebody has to
-          remember.
+          state to aim for — every exception is one more thing to remember.
         </Empty>
       ) : (
         <ul>
@@ -257,7 +256,7 @@ function GrantForm({
       */}
       <Field
         label="Why"
-        hint="Whoever reads this in a year was not in the room. Tell them what you knew."
+        hint="Whoever reads this in a year wasn't there. Tell them why."
       >
         <input
           value={reason}
@@ -298,8 +297,8 @@ function GrantForm({
       </div>
 
       <p className="text-xs leading-relaxed text-[var(--ink-faint)]">
-        You can only grant what you hold yourself, and a grant stays narrow —
-        it adds this one right and nothing else.
+        You can only grant what you have yourself, and a grant adds this one
+        right and nothing else.
       </p>
     </div>
   );

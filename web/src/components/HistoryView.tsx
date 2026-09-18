@@ -153,8 +153,8 @@ function ChainBanner({ chain, circleId }: { chain: ChainStatus; circleId: string
 
         <p className="mt-3 max-w-3xl text-xs leading-relaxed text-[var(--ink-faint)]">
           Each event hashes its own contents together with the previous event's
-          hash. This is tamper evidence for this application's own record — not
-          an independently anchored ledger.
+          hash, which makes tampering detectable. It covers this app's own record
+          only — it is not an independently anchored ledger.
         </p>
       </div>
     </Panel>

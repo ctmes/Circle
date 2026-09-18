@@ -1,104 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../lib/api";
+import {
+  SUPPORTED_EXTENSIONS,
+  fromFileList,
+  uploadEvidence,
+  walkTransfer,
+  type Picked,
+  type UploadState,
+} from "../lib/upload";
 import { Panel } from "./ui";
 
-/** A file the person dropped, with the folder shape they dropped it in. */
-interface Picked {
-  file: File;
-  path: string;
-}
-
-/**
- * Walk what was dropped, following folders.
- *
- * A tender pack is a folder, and `dataTransfer.files` flattens it to nothing
- * when a directory is dropped. `webkitGetAsEntry` is the only way to read the
- * tree, and it has to be called synchronously during the drop event — the
- * entries are invalid by the time an await resolves, which is why the items are
- * collected first and walked afterwards.
- */
-async function walk(transfer: DataTransfer): Promise<Picked[]> {
-  const entries: FileSystemEntry[] = [];
-
-  for (const item of Array.from(transfer.items)) {
-    const entry = item.webkitGetAsEntry?.();
-    if (entry) entries.push(entry);
-  }
-
-  if (entries.length === 0) {
-    return Array.from(transfer.files).map((file) => ({ file, path: file.name }));
-  }
-
-  const picked: Picked[] = [];
-
-  const readEntry = (entry: FileSystemEntry, prefix: string): Promise<void> =>
-    new Promise((resolve) => {
-      if (entry.isFile) {
-        (entry as FileSystemFileEntry).file(
-          (file) => {
-            picked.push({ file, path: prefix + file.name });
-            resolve();
-          },
-          () => resolve(),
-        );
-        return;
-      }
-
-      const reader = (entry as FileSystemDirectoryEntry).createReader();
-      const all: FileSystemEntry[] = [];
-
-      // readEntries returns at most 100 at a time and signals the end with an
-      // empty batch, so a folder of 140 needs the loop.
-      const drain = () =>
-        reader.readEntries(
-          async (batch) => {
-            if (batch.length === 0) {
-              await Promise.all(all.map((e) => readEntry(e, prefix + entry.name + "/")));
-              resolve();
-              return;
-            }
-            all.push(...batch);
-            drain();
-          },
-          () => resolve(),
-        );
-
-      drain();
-    });
-
-  await Promise.all(entries.map((e) => readEntry(e, "")));
-
-  return picked;
-}
-
-/** Run promises a few at a time, so a folder of 140 does not open 140 sockets. */
-async function inBatches<T>(items: T[], size: number, run: (item: T) => Promise<void>) {
-  for (let i = 0; i < items.length; i += size) {
-    await Promise.all(items.slice(i, i + size).map(run));
-  }
-}
-
-const SUPPORTED = [
-  "pdf", "docx", "txt", "md", "csv", "xlsx",
-  "jpg", "jpeg", "png", "webp", "heic",
-  "mp4", "mov", "webm", "mp3", "wav", "m4a", "ogg",
-  "zip", "pptx", "eml",
-];
-
-interface Job {
+/** One row of the drop's progress. Keyed by the path it was picked under. */
+interface Row {
   id: number;
-  name: string;
-  state: "signing" | "uploading" | "registering" | "done" | "failed";
+  path: string;
+  state: UploadState;
   error?: string;
 }
 
 /**
- * The ingest pipeline's client half (spec §7).
+ * The evidence vault's front door (spec §7).
  *
- * The binary goes straight from the browser to private object storage using a
- * short-lived signed URL; the API only ever learns the key. That keeps large
- * site videos off the application server entirely, and means the server's later
- * hash is computed on what actually landed rather than on what we were told.
+ * The pipeline itself moved to `lib/upload` when jobs started taking drops of
+ * their own — the binary still goes straight from the browser to private
+ * storage on a signed URL, and the API still only learns the key. What is left
+ * here is the vault's version of the gesture: the two access decisions that
+ * apply to a whole drop, and a row per file so a folder that half-worked says
+ * which half.
  */
 export function UploadDrop({
   circleId,
@@ -110,7 +37,7 @@ export function UploadDrop({
   /** The company the uploader sits in, where the Circle spans several. */
   party?: { id: string; label: string } | null;
 }) {
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [dragging, setDragging] = useState(false);
   const [agentRead, setAgentRead] = useState(false);
   const [restricted, setRestricted] = useState(false);
@@ -129,164 +56,47 @@ export function UploadDrop({
     folderInput.current?.setAttribute("webkitdirectory", "");
   }, []);
 
-  function update(id: number, patch: Partial<Job>) {
-    setJobs((all) => all.map((j) => (j.id === id ? { ...j, ...patch } : j)));
-  }
-
-  /**
-   * Sign, upload and register a whole drop in two API calls.
-   *
-   * One file or a hundred and forty takes the same shape, because the common
-   * case in this industry is a folder and asking somebody to add a tender pack
-   * one file at a time is asking them to do the filing twice. Each file still
-   * gets its own row, so a drop that half works says which half.
-   */
   async function send(picked: Picked[]) {
     if (picked.length === 0) return;
 
-    const rows = picked.map((p) => ({ id: nextId.current++, picked: p }));
+    const ids = new Map(picked.map((p) => [p.path, nextId.current++]));
 
-    setJobs((all) => [
+    setRows((all) => [
       ...all,
-      ...rows.map(({ id, picked: p }) => ({ id, name: p.path, state: "signing" as const })),
+      ...picked.map((p) => ({ id: ids.get(p.path)!, path: p.path, state: "signing" as const })),
     ]);
 
-    const byKey = new Map<string, number>();
+    function mark(path: string, state: UploadState, error?: string) {
+      const id = ids.get(path);
+      setRows((all) => all.map((r) => (r.id === id ? { ...r, state, error } : r)));
+
+      // Clear the finished row after a moment so the panel does not grow
+      // indefinitely during a bulk drop.
+      if (state === "done") {
+        setTimeout(() => setRows((all) => all.filter((r) => r.id !== id)), 2500);
+      }
+    }
 
     try {
-      const signed = await api.post<{
-        data: {
-          signed: {
-            filename: string;
-            relative_path: string | null;
-            storage_key: string;
-            upload: { url: string; headers: Record<string, string> };
-          }[];
-          rejected: { filename: string; reason: string }[];
-        };
-      }>(`/circles/${circleId}/uploads/sign-batch`, {
-        files: picked.map((p) => ({
-          filename: p.file.name,
-          content_type: p.file.type || null,
-          byte_size: p.file.size || null,
-          relative_path: p.path,
-        })),
-      });
-
-      // Anything the server would not sign is settled here rather than left
-      // spinning. A folder of 140 contains a .DS_Store, and that is not a
-      // reason to fail the other 139.
-      const rejected = new Map(signed.data.rejected.map((r) => [r.filename, r.reason]));
-      const remaining = rows.filter(({ picked: p }) => {
-        const reason = rejected.get(p.file.name);
-        if (reason) {
-          update(rows.find((r) => r.picked === p)!.id, {
-            state: "failed",
-            error: reason === "unsupported_type" ? "Unsupported file type." : reason,
-          });
-          return false;
-        }
-        return true;
-      });
-
-      const slots = signed.data.signed;
-
-      await inBatches(remaining, 6, async ({ id, picked: p }) => {
-        const slot = slots.find(
-          (s) => s.relative_path === p.path || (!s.relative_path && s.filename === p.file.name),
-        );
-
-        if (!slot) {
-          update(id, { state: "failed", error: "No upload slot was returned." });
-          return;
-        }
-
-        byKey.set(slot.storage_key, id);
-        update(id, { state: "uploading" });
-
-        const put = await fetch(slot.upload.url, {
-          method: "PUT",
-          headers: slot.upload.headers,
-          body: p.file,
-        });
-
-        if (!put.ok) {
-          byKey.delete(slot.storage_key);
-          update(id, { state: "failed", error: `Storage refused the upload (${put.status}).` });
-          return;
-        }
-
-        update(id, { state: "registering" });
-      });
-
-      const uploaded = remaining
-        .map(({ picked: p }) => {
-          const slot = slots.find(
-            (s) => s.relative_path === p.path || (!s.relative_path && s.filename === p.file.name),
-          );
-          return slot && byKey.has(slot.storage_key)
-            ? {
-                storage_key: slot.storage_key,
-                filename: p.file.name,
-                relative_path: p.path,
-                content_type: p.file.type || null,
-              }
-            : null;
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null);
-
-      if (uploaded.length === 0) return;
-
-      const result = await api.post<{
-        data: { created_count: number; rejected: { filename: string; reason: string }[] };
-      }>(`/circles/${circleId}/evidence/batch`, {
-        items: uploaded,
+      await uploadEvidence({
+        circleId,
+        picked,
         // Agent access is opt-in per item and never inherited (spec §10).
-        agent_read: agentRead && !scoped,
-        // Null is the default and means the whole Circle.
-        restricted_to_party_id: scoped ? party!.id : null,
+        agentRead: agentRead && !scoped,
+        restrictedToPartyId: scoped ? party!.id : null,
+        onState: mark,
       });
-
-      const refused = new Map(result.data.rejected.map((r) => [r.filename, r.reason]));
-
-      for (const [key, id] of byKey) {
-        const entry = uploaded.find((u) => u.storage_key === key);
-        const reason = entry ? refused.get(entry.filename) : undefined;
-
-        if (reason) {
-          update(id, { state: "failed", error: reason });
-        } else {
-          update(id, { state: "done" });
-          // Clear the finished row after a moment so the panel does not grow
-          // indefinitely during a bulk drop.
-          setTimeout(() => setJobs((all) => all.filter((j) => j.id !== id)), 2500);
-        }
-      }
-
       onUploaded();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Upload failed.";
-      for (const { id } of rows) {
-        setJobs((all) =>
-          all.map((j) =>
-            j.id === id && j.state !== "done" && j.state !== "failed"
-              ? { ...j, state: "failed", error: message }
-              : j,
-          ),
-        );
-      }
+      setRows((all) =>
+        all.map((r) =>
+          ids.has(r.path) && r.state !== "done" && r.state !== "failed"
+            ? { ...r, state: "failed", error: message }
+            : r,
+        ),
+      );
     }
-  }
-
-  function accept(files: FileList | null) {
-    if (!files) return;
-    void send(
-      Array.from(files).map((file) => ({
-        // webkitRelativePath is set when a directory was chosen, empty otherwise.
-        file,
-        path: file.webkitRelativePath || file.name,
-      })),
-    );
   }
 
   return (
@@ -313,7 +123,7 @@ export function UploadDrop({
             }`}
             title={
               scoped
-                ? "The Steward reads for the whole Circle, so it is not given one party's material."
+                ? "The Steward reads for the whole Circle, so it isn't given one party's material."
                 : undefined
             }
           >
@@ -340,7 +150,7 @@ export function UploadDrop({
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          void walk(e.dataTransfer).then(send);
+          void walkTransfer(e.dataTransfer).then(send);
         }}
         onClick={() => fileInput.current?.click()}
         role="button"
@@ -386,13 +196,14 @@ export function UploadDrop({
           Choose a folder instead
         </button>
         <p className="mx-auto mt-2 max-w-md text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
-          The original is preserved unchanged and hashed on arrival. Replacing a
-          file later creates a new version rather than overwriting this one.
+          Originals are kept exactly as they arrive and hashed on the way in.
+          Replacing a file later adds a new version rather than overwriting the
+          old one.
         </p>
         {scoped && (
           <p className="mx-auto mt-2 max-w-md text-[0.8125rem] leading-relaxed text-[var(--signal)]">
-            Visible to {party!.label} and to the convener, who receives the
-            packet. No other party in this Circle will see it listed.
+            Visible to {party!.label} and to the convener, who gets the packet.
+            No other party in this Circle will even see it listed.
           </p>
         )}
         {/*
@@ -401,7 +212,7 @@ export function UploadDrop({
           the smallest useful size rather than competing with it.
         */}
         <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-[var(--ink-faint)]">
-          {SUPPORTED.join(" · ")}
+          {SUPPORTED_EXTENSIONS.join(" · ")}
         </p>
       </div>
 
@@ -411,7 +222,7 @@ export function UploadDrop({
         multiple
         hidden
         onChange={(e) => {
-          accept(e.target.files);
+          void send(fromFileList(e.target.files));
           e.target.value = "";
         }}
       />
@@ -428,34 +239,34 @@ export function UploadDrop({
         multiple
         hidden
         onChange={(e) => {
-          accept(e.target.files);
+          void send(fromFileList(e.target.files));
           e.target.value = "";
         }}
       />
 
-      {jobs.length > 0 && (
+      {rows.length > 0 && (
         <ul>
-          {jobs.map((j) => (
+          {rows.map((r) => (
             <li
-              key={j.id}
+              key={r.id}
               className="flex items-baseline justify-between gap-3 border-t border-[var(--rule)] px-5 py-2.5"
             >
-              <span className="truncate text-[0.8125rem]">{j.name}</span>
+              <span className="truncate text-[0.8125rem]">{r.path}</span>
               <span
                 className={`shrink-0 text-xs ${
-                  j.state === "failed"
+                  r.state === "failed"
                     ? "text-[var(--signal)]"
-                    : j.state === "done"
+                    : r.state === "done"
                       ? "text-[var(--settled)]"
                       : "text-[var(--ink-faint)]"
                 }`}
-                title={j.error}
+                title={r.error}
               >
-                {j.state === "signing" && "Requesting upload URL…"}
-                {j.state === "uploading" && "Uploading to vault…"}
-                {j.state === "registering" && "Recording provenance…"}
-                {j.state === "done" && "Stored · verifying"}
-                {j.state === "failed" && (j.error ?? "Failed")}
+                {r.state === "signing" && "Getting an upload link…"}
+                {r.state === "uploading" && "Uploading…"}
+                {r.state === "registering" && "Recording where it came from…"}
+                {r.state === "done" && "Stored · verifying"}
+                {r.state === "failed" && (r.error ?? "Failed")}
               </span>
             </li>
           ))}

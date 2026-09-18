@@ -130,7 +130,7 @@ function BranchChip({
       {status === "draft" && (
         <span
           className="h-1.5 w-1.5 rounded-full bg-[var(--ink-faint)]"
-          title="Draft — only you can see this as a proposal."
+          title="Draft — only you can see this."
         />
       )}
       {status === "open" && (
@@ -236,9 +236,9 @@ function BranchReview({
             ))}
           </ul>
           <p className="mt-2 text-xs leading-relaxed text-[var(--ink-muted)]">
-            Rebasing points the branch at the plan as it stands now. What it asks
-            for is untouched — but everyone who already signed is asked again,
-            because they agreed to a different diff.
+            Rebasing moves the branch onto the plan as it stands now. What it asks
+            for doesn't change, but anyone who already agreed gets asked again —
+            they agreed to a different version.
           </p>
           <div className="mt-2">
             <Button variant="primary" disabled={busy} onClick={() => act("rebase")}>
@@ -269,8 +269,8 @@ function BranchReview({
       <div className="px-4 py-3">
         {isDraft ? (
           <p className="text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
-            A draft. Edit the tree below and your changes are staged here rather
-            than applied. Nobody else is asked anything until you propose it.
+            This is a draft. Edits to the tree below are staged here rather than
+            applied, and nobody else sees anything until you propose it.
           </p>
         ) : (
           <Signatures branch={branch} waitingOnMe={waitingOnMe} />
@@ -289,8 +289,8 @@ function BranchReview({
               disabled={busy || branch.change_count === 0}
               title={
                 branch.change_count === 0
-                  ? "An empty branch proposes nothing."
-                  : "Ask the affected parties to agree to this."
+                  ? "There is nothing to propose yet."
+                  : "Ask the companies this affects to agree to it."
               }
               onClick={() => act("propose")}
             >
@@ -312,7 +312,7 @@ function BranchReview({
                 title={
                   waitingOnMe
                     ? "Agree to this on behalf of your company."
-                    : "Your party has already answered, or this does not touch your work."
+                    : "Your company has already answered, or this doesn't affect your work."
                 }
                 onClick={() => act("approve", { comment: note || null })}
               >
@@ -430,7 +430,7 @@ function BranchComposer({
 
       <Field
         label="Why"
-        hint="The other parties read this before they read the diff. It is the case you are making."
+        hint="The other parties read this before they read the changes. It is the case you are making."
       >
         <input
           value={intent}
@@ -470,8 +470,8 @@ function BranchComposer({
       </div>
 
       <p className="text-xs leading-relaxed text-[var(--ink-faint)]">
-        Nothing you do on a branch touches the plan. When you propose it, every
-        company whose work it changes has to agree before it does.
+        Nothing you do on a branch touches the plan. Once you propose it, every
+        company whose work it changes has to agree.
       </p>
     </div>
   );

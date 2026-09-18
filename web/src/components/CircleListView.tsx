@@ -14,6 +14,7 @@ import {
 } from "./ui";
 import { ThemeToggle } from "./ThemeToggle";
 import { Ring, progressTone } from "./CircleMeter";
+import { ConveneDrop } from "./ConveneDrop";
 import { Wordmark } from "./Wordmark";
 
 /**
@@ -29,6 +30,20 @@ export function CircleListView() {
     () => api.get<{ data: Circle[] }>("/circles").then((r) => r.data),
     [],
   );
+
+  // Which company is convening is one answer, not one per panel. It was inside
+  // the form until there were two ways to open a Circle, at which point picking
+  // it in one and having the other not know was a bug waiting to be filed.
+  const { data: orgs } = useAsync<Org[]>(
+    () => api.get<{ data: Org[] }>("/organisations").then((r) => r.data),
+    [],
+  );
+  const [organisationId, setOrganisationId] = useState("");
+
+  // Most people belong to exactly one organisation; do not make them pick.
+  useEffect(() => {
+    if (!organisationId && orgs?.length === 1) setOrganisationId(orgs[0].id);
+  }, [orgs, organisationId]);
 
   const active = (data ?? []).filter((c) => !c.is_closed);
   const closed = (data ?? []).filter((c) => c.is_closed);
@@ -65,8 +80,8 @@ export function CircleListView() {
           <div>
             <h1 className="display text-[2rem] font-[680] leading-tight">Your Circles</h1>
             <p className="mt-2 max-w-xl text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
-              Each Circle holds only what one mission needs, and ends when the
-              mission does.
+              Each Circle holds what one piece of work needs, and ends when that
+              work does.
             </p>
           </div>
           <Button variant={creating ? "default" : "primary"} onClick={() => setCreating((v) => !v)}>
@@ -75,10 +90,28 @@ export function CircleListView() {
         </div>
 
         {creating && (
-          <div className="mb-6">
+          <div className="mb-6 space-y-4">
+            {/*
+              Two ways in, and the document first because it is the one that
+              does the work for you. The form underneath is not a fallback —
+              plenty of missions begin before anybody has signed anything — but
+              where a contract exists it already contains the plan, and typing
+              it out again is where the copy starts to diverge from what was
+              agreed.
+            */}
+            <ConveneDrop organisationId={organisationId} />
+
+            <p className="px-1 text-xs text-[var(--ink-faint)]">
+              Or set it up by hand.
+            </p>
+
             {/* On success the Creator navigates straight into the new
                 Circle, so there is nothing for this page to refresh. */}
-            <Creator />
+            <Creator
+              orgs={orgs ?? []}
+              organisationId={organisationId}
+              onOrganisation={setOrganisationId}
+            />
           </div>
         )}
 
@@ -95,8 +128,8 @@ export function CircleListView() {
               {active.length === 0 ? (
                 <Panel>
                   <Empty>
-                    You are not in any open Circle. You will appear here once
-                    someone invites you to one.
+                    You're not in any open Circle yet. One will show up here once
+                    someone invites you.
                   </Empty>
                 </Panel>
               ) : (
@@ -202,22 +235,20 @@ function CircleCard({ circle, index }: { circle: Circle; index: number }) {
 
 interface Org { id: string; name: string; slug: string }
 
-function Creator() {
-  const { data: orgs } = useAsync<Org[]>(
-    () => api.get<{ data: Org[] }>("/organisations").then((r) => r.data),
-    [],
-  );
-  const [organisationId, setOrganisationId] = useState("");
+function Creator({
+  orgs,
+  organisationId,
+  onOrganisation,
+}: {
+  orgs: Org[];
+  organisationId: string;
+  onOrganisation: (id: string) => void;
+}) {
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [expires, setExpires] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-
-  // Most people belong to exactly one organisation; do not make them pick.
-  useEffect(() => {
-    if (!organisationId && orgs?.length === 1) setOrganisationId(orgs[0].id);
-  }, [orgs, organisationId]);
 
   async function submit() {
     setBusy(true);
@@ -240,7 +271,7 @@ function Creator() {
     <Panel title="Open a Circle" className="lay-in">
       <div className="space-y-4 px-5 pb-5">
         <Field
-          label="Mission"
+          label="Name"
           hint="Name the outcome, not the team. “Rail Access Package — Bid Review”, not “Ops”."
         >
           <input
@@ -268,17 +299,17 @@ function Creator() {
           <Field label="Organisation">
             <select
               value={organisationId}
-              onChange={(e) => setOrganisationId(e.target.value)}
+              onChange={(e) => onOrganisation(e.target.value)}
               className={inputClass}
             >
               <option value="">Choose…</option>
-              {(orgs ?? []).map((o) => (
+              {orgs.map((o) => (
                 <option key={o.id} value={o.id}>{o.name}</option>
               ))}
             </select>
           </Field>
 
-          <Field label="Closes on" hint="A Circle is temporary by design.">
+          <Field label="Closes on" hint="Circles are meant to be temporary.">
             <input
               type="date"
               value={expires}

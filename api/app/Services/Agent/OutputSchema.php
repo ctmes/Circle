@@ -103,10 +103,27 @@ class OutputSchema
                             'properties'           => [
                                 'evidence_version_id' => ['type' => 'string'],
                                 'excerpt'             => ['type' => 'string'],
+                                // Closed, and spelling out the three shapes
+                                // rather than accepting any object.
+                                //
+                                // It was an open object, which structured
+                                // outputs refuses outright — `additionalProperties`
+                                // may only be false. Closing it is the better
+                                // schema regardless: these five keys are exactly
+                                // what citationTypeFor() reads, so an open object
+                                // was inviting the model to invent a locator the
+                                // application would then ignore.
                                 'locator'             => [
                                     'type'                 => 'object',
-                                    'additionalProperties' => true,
-                                    'description'          => 'Precise location, e.g. {"page": 4} or {"sheet": "Loads", "range": "B7:D7"} or {"start_seconds": 133}.',
+                                    'additionalProperties' => false,
+                                    'description'          => 'Precise location. Documents use page; spreadsheets use sheet and range; audio and video use seconds.',
+                                    'properties'           => [
+                                        'page'          => ['type' => 'integer'],
+                                        'sheet'         => ['type' => 'string'],
+                                        'range'         => ['type' => 'string', 'description' => 'e.g. B7:D7'],
+                                        'start_seconds' => ['type' => 'number'],
+                                        'end_seconds'   => ['type' => 'number'],
+                                    ],
                                 ],
                             ],
                         ],
@@ -184,9 +201,21 @@ class OutputSchema
                         'type'        => 'string',
                         'description' => 'One sentence an approver can judge without reading the arguments.',
                     ],
+                    // A JSON object, carried as a string.
+                    //
+                    // Every other field on this schema has a shape we control;
+                    // this one's shape belongs to whichever tool is being
+                    // called, and there is no way to express "any object" —
+                    // structured outputs requires `additionalProperties: false`
+                    // everywhere, which for a property-less object means "no
+                    // arguments at all". A string the runner decodes keeps the
+                    // tool's own contract intact, and a tool whose arguments
+                    // will not parse is refused at the ledger rather than
+                    // executed with half of them.
                     'arguments' => [
-                        'type'                 => 'object',
-                        'additionalProperties' => true,
+                        'type'        => 'string',
+                        'description' => 'The arguments for this tool as a JSON object, serialised to a string. '
+                            . 'For example: {"goal_id":"01H...","progress":40}',
                     ],
                 ],
             ],

@@ -26,7 +26,7 @@ Set-Location $PSScriptRoot
 
 $WebUrl   = 'http://localhost:4321'
 $ApiUrl   = 'http://localhost:8000/api'
-$MinioUrl = 'http://localhost:59001'
+$MinioUrl = 'http://localhost:19001'
 $DemoUser = 'gm@jwamats.test'
 $DemoPass = 'correct-horse-battery'
 

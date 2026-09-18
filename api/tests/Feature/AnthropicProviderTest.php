@@ -235,4 +235,185 @@ class AnthropicProviderTest extends TestCase
 
         $this->assertSame(0, $transport->callCount());
     }
+
+    /**
+     * Structured outputs implements a subset of JSON Schema and rejects the
+     * rest with a 400 — one keyword per round trip, so a schema carrying four
+     * of them takes four attempts to clear. Both of this application's schemas
+     * carried them and neither had ever reached a live model.
+     *
+     * The builders still say `minimum: 1`: it documents the intent, a second
+     * provider may well honour it, and PlanResolver re-checks every one of
+     * those bounds after the run regardless. Only the wire is trimmed.
+     */
+    #[Test]
+    public function it_strips_the_schema_keywords_structured_outputs_refuses(): void
+    {
+        $transport = (new RecordedTransport)->queue($this->reply());
+
+        $this->provider($transport)->generateStructured('MANDATE', 'EVIDENCE', [
+            'type'                 => 'object',
+            'additionalProperties' => false,
+            'required'             => ['level'],
+            'properties'           => [
+                'level'   => ['type' => 'integer', 'minimum' => 1, 'maximum' => 4],
+                'excerpt' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 300],
+                'steps'   => [
+                    'type'     => 'array',
+                    'minItems' => 1,
+                    'items'    => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'weight' => ['type' => 'number', 'minimum' => 0, 'maximum' => 1],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $sent = $transport->sentBody()['output_config']['format']['schema'];
+
+        $this->assertSame(['type' => 'integer'], $sent['properties']['level']);
+        $this->assertSame(['type' => 'string'], $sent['properties']['excerpt']);
+        $this->assertArrayNotHasKey('minItems', $sent['properties']['steps']);
+
+        // Nested inside an array's items, which is where the recursion matters.
+        $this->assertSame(
+            ['type' => 'number'],
+            $sent['properties']['steps']['items']['properties']['weight'],
+        );
+
+        // Everything the API does support survives untouched.
+        $this->assertFalse($sent['additionalProperties']);
+        $this->assertSame(['level'], $sent['required']);
+    }
+
+    #[Test]
+    public function it_strips_those_keywords_from_the_schemas_this_application_actually_sends(): void
+    {
+        foreach ([
+            'convening' => \App\Services\Convening\ConveningSchema::build(),
+            'brief'     => \App\Services\Agent\OutputSchema::build(),
+        ] as $name => $schema) {
+            $transport = (new RecordedTransport)->queue($this->reply());
+
+            $this->provider($transport)->generateStructured('MANDATE', 'EVIDENCE', $schema);
+
+            $sent = json_encode($transport->sentBody()['output_config']['format']['schema']);
+
+            foreach (['minimum', 'maximum', 'minItems', 'minLength', 'maxLength'] as $keyword) {
+                $this->assertStringNotContainsString(
+                    '"' . $keyword . '"',
+                    $sent,
+                    "The {$name} schema still sends {$keyword}, which the API refuses.",
+                );
+            }
+        }
+    }
+
+    /**
+     * Reading a contract into a fixed schema and finding the contradiction
+     * between two documents are different jobs, and paying one rate for both
+     * was a choice nobody made deliberately.
+     */
+    #[Test]
+    public function it_takes_its_model_and_effort_from_the_task_it_was_asked_for(): void
+    {
+        config()->set('circle.agent.tasks.convening', [
+            'model'  => 'claude-haiku-4-5',
+            'effort' => 'low',
+        ]);
+
+        $transport = (new RecordedTransport)->queue($this->reply());
+
+        $this->provider($transport)->forTask('convening')
+            ->generateStructured('MANDATE', 'EVIDENCE', self::SCHEMA);
+
+        $body = $transport->sentBody();
+
+        $this->assertSame('claude-haiku-4-5', $body['model']);
+        $this->assertSame('low', $body['output_config']['effort']);
+    }
+
+    #[Test]
+    public function an_unknown_task_falls_back_to_the_default_rather_than_failing(): void
+    {
+        $transport = (new RecordedTransport)->queue($this->reply());
+
+        // A typo in a task name must not take down a run whose whole purpose is
+        // to produce a brief.
+        $this->provider($transport)->forTask('no-such-task')
+            ->generateStructured('MANDATE', 'EVIDENCE', self::SCHEMA);
+
+        $this->assertSame('claude-opus-5', $transport->sentBody()['model']);
+    }
+
+    #[Test]
+    public function asking_for_a_task_does_not_change_the_provider_it_was_asked_of(): void
+    {
+        config()->set('circle.agent.tasks.convening', ['model' => 'claude-haiku-4-5']);
+
+        $transport = (new RecordedTransport)->queue($this->reply())->queue($this->reply());
+        $provider  = $this->provider($transport);
+
+        $provider->forTask('convening')->generateStructured('M', 'E', self::SCHEMA);
+        $provider->generateStructured('M', 'E', self::SCHEMA);
+
+        // One task's model must not leak onto the next caller.
+        $this->assertSame('claude-haiku-4-5', $transport->sentBody(0)['model']);
+        $this->assertSame('claude-opus-5', $transport->sentBody(1)['model']);
+    }
+
+    /**
+     * Structured outputs compiles a grammar from the schema and refuses one
+     * with too many optional parameters, counting every nesting level and every
+     * place a shape is inlined. The convening schema ran to 34 against a limit
+     * of 24 and was refused on a live call.
+     *
+     * The guard is here rather than in a comment because the failure mode is
+     * silent until somebody uploads a contract: nothing in the type system, the
+     * linter or the rest of the suite notices an extra optional field.
+     */
+    #[Test]
+    public function the_schemas_stay_inside_the_grammar_compilers_optional_parameter_budget(): void
+    {
+        $limit = \App\Services\Convening\ConveningSchema::MAX_OPTIONAL_PARAMETERS;
+
+        $tools = [];
+
+        foreach ([
+            'convening' => \App\Services\Convening\ConveningSchema::build(),
+            'brief'     => \App\Services\Agent\OutputSchema::build(),
+            'authored'  => \App\Services\Agent\OutputSchema::build($tools),
+        ] as $name => $schema) {
+            $optional = \App\Services\Ai\StructuredSchema::countOptional($schema);
+
+            $this->assertLessThanOrEqual(
+                $limit,
+                $optional,
+                "The {$name} schema declares {$optional} optional parameters; the compiler refuses more than {$limit}. "
+                . 'Make a field required, or take one out.',
+            );
+        }
+    }
+
+    /**
+     * `additionalProperties` may only ever be false. An open object is refused
+     * outright, which is how a locator that accepted anything went unnoticed
+     * until the first live brief.
+     */
+    #[Test]
+    public function no_schema_this_application_sends_leaves_an_object_open(): void
+    {
+        foreach ([
+            'convening' => \App\Services\Convening\ConveningSchema::build(),
+            'brief'     => \App\Services\Agent\OutputSchema::build(),
+        ] as $name => $schema) {
+            $this->assertStringNotContainsString(
+                '"additionalProperties":true',
+                (string) json_encode($schema),
+                "The {$name} schema leaves an object open, which the API refuses.",
+            );
+        }
+    }
 }

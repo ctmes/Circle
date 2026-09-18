@@ -92,15 +92,15 @@ export function EvidenceSearchPanel({
 
       {!error && !asked && (
         <Empty>
-          Every page, cell and transcript segment in this Circle is indexed. A hit
-          comes back with the place it was found, ready to cite.
+          Every page, cell and transcript segment in this Circle is searchable.
+          Results come back with the exact spot they were found, ready to cite.
         </Empty>
       )}
 
       {!error && asked && !loading && hits.length === 0 && (
         <Empty>
-          Nothing in the extracted text matches. Items still being processed, and
-          anything you are not cleared to view, are not searched.
+          No matches in the extracted text. Items still being processed, and
+          anything you can't view, aren't searched.
         </Empty>
       )}
 
@@ -151,7 +151,7 @@ function Hit({
           {hit.integrity_status === "superseded" && (
             <span
               className="ml-2 text-[var(--signal)]"
-              title="A newer version exists. A citation made here still resolves to this one."
+              title="There is a newer version. A citation made here still points at this one."
             >
               superseded
             </span>

@@ -1,10 +1,10 @@
 ---
 import Base from "../../../layouts/Base.astro";
-import { WorkView } from "../../../components/WorkView";
+import { MainView } from "../../../components/MainView";
 
 export const prerender = false;
 const { circleId } = Astro.params;
 ---
-<Base title="Plan">
-  <WorkView client:load circleId={circleId!} />
+<Base title="Main">
+  <MainView client:load circleId={circleId!} />
 </Base>

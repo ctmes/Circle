@@ -185,14 +185,14 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
         <Panel title="Invitation issued">
           <div className="px-5 py-3.5">
             <p className="text-sm">
-              Send this link to <span className="font-[560]">{issued.email}</span>. It can only
-              be redeemed by that address, and it expires in 14 days.
+              Send this link to <span className="font-[560]">{issued.email}</span>. Only that
+              address can use it, and it expires in 14 days.
             </p>
             <p className="mt-2 break-all">
               <Copyable value={`${location.origin}/invitations/${issued.token}`} />
             </p>
             <p className="mt-2 text-xs text-[var(--ink-muted)]">
-              Shown once. The MVP has no mailer wired up, so deliver it yourself.
+              Shown once. There's no mailer wired up yet, so send it yourself.
             </p>
           </div>
         </Panel>
@@ -266,8 +266,8 @@ function Body({ circleId, canManage }: { circleId: string; canManage: boolean })
                 </ul>
               )}
               <p className="mt-3 text-xs leading-relaxed text-[var(--ink-faint)]">
-                Access is granted per item, never inherited. Everything the agent
-                produces is a draft that a person must confirm.
+                Access is granted item by item, never inherited. Everything the
+                agent produces is a draft until a person confirms it.
               </p>
             </div>
           </div>
@@ -345,9 +345,9 @@ function InviteForm({
         </div>
 
         <p className="text-xs leading-snug text-[var(--ink-muted)]">
-          External collaborators see only this Circle. Download and sharing are
-          denied to them by default and must be granted per item, and closing the
-          Circle revokes their access entirely.
+          External collaborators only see this Circle. They can't download or
+          share by default — that has to be granted item by item — and closing
+          the Circle ends their access.
         </p>
 
         {!!error && <ErrorNote error={error} />}

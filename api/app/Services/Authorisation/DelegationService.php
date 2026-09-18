@@ -31,7 +31,7 @@ use Illuminate\Support\Facades\DB;
  * a permission they hold only by grant can be passed on, and one they have been
  * explicitly denied cannot.
  *
- * The Circle's owner cannot be denied the two rights that make them the owner.
+ * The Circle's owner cannot be denied the rights that make them the owner.
  * A Circle whose owner has been locked out of membership control has no way
  * back — there is no support desk inside the product.
  */
@@ -40,6 +40,7 @@ class DelegationService
     /** Rights the convening owner keeps no matter what anyone writes. */
     private const OWNER_INALIENABLE = [
         Permission::CircleClose,
+        Permission::CircleDelete,
         Permission::CircleManageMembers,
     ];
 

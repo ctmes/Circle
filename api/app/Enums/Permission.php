@@ -11,6 +11,10 @@ enum Permission: string
     case CircleView          = 'circle.view';
     case CircleManageMembers = 'circle.manage_members';
     case CircleClose         = 'circle.close';
+    // Deleting and restoring. One right for both, because whoever may take a
+    // Circle out of everyone's list is the person who should decide whether it
+    // comes back.
+    case CircleDelete        = 'circle.delete';
 
     case ResourceView      = 'resource.view';
     case ResourceDownload  = 'resource.download';

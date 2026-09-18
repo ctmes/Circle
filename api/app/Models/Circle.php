@@ -26,6 +26,7 @@ class Circle extends Model
             'starts_at'       => 'datetime',
             'expires_at'      => 'datetime',
             'closed_at'       => 'datetime',
+            'deleted_at'      => 'datetime',
         ];
     }
 
@@ -113,6 +114,15 @@ class Circle extends Model
     public function isClosed(): bool
     {
         return $this->status->isClosed() || $this->closed_at !== null;
+    }
+
+    /**
+     * Deleted is a state, not a missing row — see the migration that added it.
+     * A deleted Circle is always closed as well; deletion closes it first.
+     */
+    public function isDeleted(): bool
+    {
+        return $this->deleted_at !== null;
     }
 
     public function isExpired(): bool

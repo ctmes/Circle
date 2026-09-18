@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDate, relativeDays, type Goal } from "../lib/api";
+import { useJobDrop } from "./JobDrop";
 
 /**
  * The goal tree, drawn as a tree.
@@ -102,18 +103,33 @@ function useCollapsed(circleId: string) {
   return { collapsed, toggle, setCollapsed };
 }
 
+/**
+ * What a row does with files dropped on it.
+ *
+ * Optional, because the tree is also drawn where filing makes no sense — a
+ * branch preview, a closed Circle, a reader who may not write. Left out, rows
+ * never highlight on a drag, which is the honest behaviour: a drop zone that
+ * refuses on release is worse than one that was never offered.
+ */
+export interface TreeFileDrop {
+  canFile: boolean;
+  onFiled: () => void;
+}
+
 export function GoalTree({
   circleId,
   goals,
   selectedId,
   onSelect,
   renderDetail,
+  fileDrop,
 }: {
   circleId: string;
   goals: Goal[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   renderDetail: (goal: Goal) => React.ReactNode;
+  fileDrop?: TreeFileDrop;
 }) {
   const { collapsed, toggle, setCollapsed } = useCollapsed(circleId);
 
@@ -146,7 +162,7 @@ export function GoalTree({
         {/* Widths mirror the row's columns exactly; a header a few pixels off
             its column reads as a rendering bug rather than a heading. */}
         <span className="ml-auto flex items-center gap-2 pr-3 text-[0.6875rem] uppercase tracking-[0.06em] text-[var(--ink-faint)]">
-          <span className="hidden w-28 text-right sm:inline">Answerable</span>
+          <span className="hidden w-28 text-right sm:inline">Responsible</span>
           <span className="w-14 text-right">Progress</span>
           <span className="w-24 text-right">Due</span>
         </span>
@@ -157,6 +173,7 @@ export function GoalTree({
           <GoalBranch
             key={goal.id ?? `add:${goal.branch?.change_id}`}
             goal={goal}
+            circleId={circleId}
             depth={0}
             isLast={i === goals.length - 1}
             guides={[]}
@@ -165,6 +182,7 @@ export function GoalTree({
             selectedId={selectedId}
             onSelect={onSelect}
             renderDetail={renderDetail}
+            fileDrop={fileDrop}
           />
         ))}
       </ul>
@@ -174,6 +192,7 @@ export function GoalTree({
 
 function GoalBranch({
   goal,
+  circleId,
   depth,
   isLast,
   guides,
@@ -182,8 +201,10 @@ function GoalBranch({
   selectedId,
   onSelect,
   renderDetail,
+  fileDrop,
 }: {
   goal: Goal;
+  circleId: string;
   depth: number;
   isLast: boolean;
   /** For each ancestor level, whether a vertical rule continues past this row. */
@@ -193,9 +214,23 @@ function GoalBranch({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   renderDetail: (goal: Goal) => React.ReactNode;
+  fileDrop?: TreeFileDrop;
 }) {
   const children = goal.children ?? [];
   const hasChildren = children.length > 0;
+
+  /*
+    Every row is a filing cabinet. Dropping the signed drawing onto the package
+    it belongs to is the shortest path between having a document and having it
+    where the next person will look, and it was previously a three-screen
+    errand through the vault.
+  */
+  const drop = useJobDrop({
+    circleId,
+    goalId: goal.id,
+    enabled: fileDrop?.canFile === true,
+    onFiled: () => fileDrop?.onFiled(),
+  });
   const isOpen = hasChildren && !(goal.id !== null && collapsed.has(goal.id));
   const isSelected = selectedId === goal.id;
 
@@ -219,12 +254,15 @@ function GoalBranch({
     >
       <div
         onClick={() => onSelect(goal.id === null ? null : isSelected ? null : goal.id)}
+        {...drop.dropProps}
         className={`group relative flex cursor-pointer items-center gap-2 pr-3 transition-colors ${
-          isSelected
-            ? "bg-[var(--paper-sunk)]"
-            : goal.branch
-              ? "bg-[color-mix(in_srgb,var(--derived)_7%,transparent)] hover:bg-[color-mix(in_srgb,var(--derived)_12%,transparent)]"
-              : "hover:bg-[var(--paper-inset)]"
+          drop.dragging
+            ? "bg-[var(--accent-soft)] shadow-[inset_0_0_0_2px_var(--accent)]"
+            : isSelected
+              ? "bg-[var(--paper-sunk)]"
+              : goal.branch
+                ? "bg-[color-mix(in_srgb,var(--derived)_7%,transparent)] hover:bg-[color-mix(in_srgb,var(--derived)_12%,transparent)]"
+                : "hover:bg-[var(--paper-inset)]"
         }`}
       >
         {/* Ancestor rules. Drawn as absolutely positioned hairlines rather than
@@ -320,10 +358,41 @@ function GoalBranch({
           )}
         </span>
 
+        {/*
+          Said on the row being dragged over rather than in a banner elsewhere:
+          at the moment of release the only question is whether this is the
+          right row, and the answer has to be under the pointer.
+        */}
+        {(drop.dragging || drop.busy) && (
+          <span className="shrink-0 rounded-[var(--r-chip)] bg-[var(--accent)] px-1.5 py-0.5 text-[0.6875rem] font-[600] text-white">
+            {drop.busy
+              ? drop.progress
+                ? `filing ${drop.progress.done}/${drop.progress.total}`
+                : "filing…"
+              : "file it here"}
+          </span>
+        )}
+
+        {/*
+          The way out to the job's own screen. Quiet until the row is hovered,
+          because the tree is for reading the shape of the plan and a column of
+          links down the right-hand side would compete with the dates.
+        */}
+        {goal.id !== null && (
+          <a
+            href={`/circles/${circleId}/jobs/${goal.id}`}
+            onClick={(e) => e.stopPropagation()}
+            title={`Open ${goal.title}`}
+            className="shrink-0 rounded-[var(--r-control)] px-1 text-[0.6875rem] text-[var(--ink-faint)] no-underline opacity-0 transition-opacity hover:text-[var(--accent)] focus:opacity-100 group-hover:opacity-100"
+          >
+            open
+          </a>
+        )}
+
         {buried > 0 && (
           <span
             className="shrink-0 rounded-[var(--r-chip)] bg-[var(--signal-soft)] px-1.5 py-0.5 text-[0.6875rem] font-[560] text-[var(--signal)]"
-            title={`${buried} overdue inside this branch, currently collapsed.`}
+            title={`${buried} overdue inside this branch, which is collapsed.`}
           >
             {buried} late inside
           </span>
@@ -346,8 +415,8 @@ function GoalBranch({
           className="hidden w-28 shrink-0 truncate text-right text-[0.75rem] text-[var(--ink-muted)] sm:inline"
           title={
             goal.responsible_party
-              ? `${goal.responsible_party.label} is answerable for this as ${goal.responsible_party.role}.`
-              : "No company is answerable for this."
+              ? `${goal.responsible_party.label} is responsible for this, as the ${goal.responsible_party.role}.`
+              : "No company is responsible for this yet."
           }
         >
           {goal.responsible_party?.label ?? (
@@ -410,6 +479,7 @@ function GoalBranch({
             <GoalBranch
               key={child.id ?? `add:${child.branch?.change_id}`}
               goal={child}
+              circleId={circleId}
               depth={depth + 1}
               isLast={i === children.length - 1}
               guides={[...guides, !isLast]}
@@ -418,6 +488,7 @@ function GoalBranch({
               selectedId={selectedId}
               onSelect={onSelect}
               renderDetail={renderDetail}
+              fileDrop={fileDrop}
             />
           ))}
         </ul>
@@ -499,7 +570,7 @@ function ProgressBar({ goal }: { goal: Goal }) {
       title={
         goal.progress_is_derived
           ? `Averaged from this goal's sub-goals (${goal.progress}%).`
-          : `Reported by whoever owns this (${goal.progress}%).`
+          : `Reported by whoever owns it (${goal.progress}%).`
       }
     >
       <span className="relative hidden h-1 w-6 overflow-hidden rounded-full bg-[var(--rule)] lg:inline-block">

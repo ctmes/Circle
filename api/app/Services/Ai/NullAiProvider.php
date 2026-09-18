@@ -13,6 +13,12 @@ class NullAiProvider implements AiProvider
         return false;
     }
 
+    /** There is no model to choose between when there is no provider. */
+    public function forTask(string $task): AiProvider
+    {
+        return $this;
+    }
+
     public function name(): string
     {
         return 'null';

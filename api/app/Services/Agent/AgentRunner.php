@@ -70,6 +70,11 @@ class AgentRunner
     ): AgentRun {
         $circle = $agent->circle;
 
+        // The Steward's brief and an agent somebody wrote in the studio are
+        // different jobs with different budgets. Resolved before the run row so
+        // a failure records the model it was about to call.
+        $ai = $this->ai->forTask($runType === 'steward_brief' ? 'brief' : 'authored');
+
         // The human must be allowed to run an agent...
         $this->gate->authorise($triggeredBy, Permission::AgentRun, $circle);
 
@@ -90,8 +95,8 @@ class AgentRunner
             'triggered_by_user_id' => $triggeredBy->id,
             'run_type'             => $runType,
             'status'               => 'running',
-            'model_provider'       => $this->ai->name(),
-            'model_name'           => $this->ai->model(),
+            'model_provider'       => $ai->name(),
+            'model_name'           => $ai->model(),
             'prompt_version'       => $prompt->version(),
             'started_at'           => now(),
         ]);
@@ -102,7 +107,7 @@ class AgentRunner
                 'triggered_by'   => $triggeredBy->id,
                 'agent'          => $agent->blueprint->name,
                 'execution_mode' => $agent->blueprint->execution_mode?->value,
-                'model'          => $this->ai->model(),
+                'model'          => $ai->model(),
                 'prompt_version' => $prompt->version(),
             ],
         );
@@ -114,7 +119,7 @@ class AgentRunner
             // exactly what was retrieved and what was refused.
             $run->forceFill(['retrieval_manifest_json' => $manifest])->save();
 
-            $result = $this->ai->generateStructured(
+            $result = $ai->generateStructured(
                 $prompt->systemPrompt(),
                 $prompt->userPrompt($circle, $sources, $openQuestions),
                 $prompt->outputSchema(),
@@ -369,7 +374,7 @@ class AgentRunner
                 $this->actions->propose(
                     agent: $agent,
                     tool: $tool,
-                    arguments: $call['arguments'] ?? [],
+                    arguments: self::decodeArguments($call['arguments'] ?? null),
                     intent: $call['intent'] ?? null,
                     onBehalfOf: $onBehalfOf,
                     agentRunId: $run->id,
@@ -425,6 +430,34 @@ class AgentRunner
      * Infers the citation type from the locator shape and the cited version's
      * media lane, so the UI knows how to deep-link it.
      */
+    /**
+     * The tool arguments, however the model chose to hand them over.
+     *
+     * The schema asks for a JSON string, because a tool's argument shape
+     * belongs to the tool and structured outputs has no way to say "any
+     * object". A model that sends the object anyway is obliging rather than
+     * wrong, so both are accepted; anything that will not decode becomes an
+     * empty argument set, and the proposal lands in the ledger with nothing in
+     * it for a human to look at and refuse. Guessing at half-parsed arguments
+     * would be the one outcome worse than a visibly empty proposal.
+     *
+     * @return array<string, mixed>
+     */
+    private static function decodeArguments(mixed $arguments): array
+    {
+        if (is_array($arguments)) {
+            return $arguments;
+        }
+
+        if (! is_string($arguments) || trim($arguments) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($arguments, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
     private function citationTypeFor(string $versionId, ?array $locator): CitationType
     {
         if ($locator === null || $locator === []) {

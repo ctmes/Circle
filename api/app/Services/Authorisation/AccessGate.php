@@ -59,6 +59,7 @@ class AccessGate
         Permission::ResourceAgentRead,
         Permission::CircleManageMembers,
         Permission::CircleClose,
+        Permission::CircleDelete,
     ];
 
     /**
@@ -192,17 +193,32 @@ class AccessGate
             return AccessDecision::deny('membership_expired', 'Your access to this Circle has expired.');
         }
 
-        // (4) Circle lifecycle. Closure revokes external participants entirely
-        // and leaves internal members with a read-only record.
+        // (4) Circle lifecycle.
+        //
+        // A deleted Circle is out of reach for everyone who was in it, read
+        // access included. The one act left is deciding whether it comes back,
+        // which is the same right that took it away.
+        if ($circle->isDeleted() && $permission !== Permission::CircleDelete) {
+            return AccessDecision::deny('circle_deleted', 'This Circle has been deleted.');
+        }
+
+        // Closure revokes external participants entirely and leaves internal
+        // members with a read-only record. Deleting one is housekeeping on a
+        // record that no longer changes, so it survives closure; and closing
+        // one that has run past its date is how an expired Circle is meant to
+        // end, so expiry does not stand in the way of it.
+        $survivesClosure = in_array($permission, self::READ_ONLY_AFTER_CLOSURE, true)
+            || $permission === Permission::CircleDelete;
+
         if ($circle->isClosed()) {
             if ($membership->is_external) {
                 return AccessDecision::deny('circle_closed', 'This Circle is closed; external access has been revoked.');
             }
 
-            if (! in_array($permission, self::READ_ONLY_AFTER_CLOSURE, true)) {
+            if (! $survivesClosure) {
                 return AccessDecision::deny('circle_closed', 'This Circle is closed and accepts no further changes.');
             }
-        } elseif ($circle->isExpired() && ! in_array($permission, self::READ_ONLY_AFTER_CLOSURE, true)) {
+        } elseif ($circle->isExpired() && ! $survivesClosure && $permission !== Permission::CircleClose) {
             return AccessDecision::deny('circle_expired', 'This Circle has passed its expiry date and accepts no further changes.');
         }
 

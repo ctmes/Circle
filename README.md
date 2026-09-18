@@ -53,7 +53,7 @@ at [`DEPLOY.md`](DEPLOY.md).
 |---|---|---|
 | Web | http://localhost:4321 | Astro + React front end |
 | API | http://localhost:8000/api | Laravel JSON API |
-| MinIO console | http://localhost:59001 | Evidence vault (`circle` / `circlecircle`) |
+| MinIO console | http://localhost:19001 | Evidence vault (`circle` / `circlecircle`) |
 | Horizon | http://localhost:8000/horizon | Queue workers, throughput, failed jobs |
 
 Sign up at http://localhost:4321, create your organisation, and open a Circle —
@@ -87,7 +87,7 @@ the bytes as shipped and the digest the Circle recorded at upload. **81 checks.*
 ### Tests
 
 ```bash
-docker compose run --rm api php artisan test    # 217 feature tests
+docker compose run --rm api php artisan test    # 282 feature tests
 cd web && npx astro check                       # typecheck
 cd web && node verify-contract.mjs              # 128 API/UI contract checks
 cd web && node screenshot.mjs                   # drives every view in a browser
@@ -285,9 +285,147 @@ All enforced rather than described:
   permissions or reach anything outside its Circle.
 - Closing a Circle disables it outright.
 
-Set `ANTHROPIC_API_KEY` in `api/.env` to enable it (default model
-`claude-opus-5`). Without a key, runs fail loudly and are recorded as failed —
-they never return an empty brief that looks like a real one.
+Set `ANTHROPIC_API_KEY` in `api/.env` to enable it. Without a key, runs fail
+loudly and are recorded as failed — they never return an empty brief that looks
+like a real one.
+
+### One model per job
+
+Everything ran on `claude-opus-5`, which is the right default for open-ended
+reasoning and the wrong one for what this application actually asks of a model.
+Three jobs, priced separately in `config/circle.php`:
+
+| Task | Default | Effort | What it is |
+|---|---|---|---|
+| `convening` | `claude-sonnet-5` | `low` | Read one document into a fixed schema whose every field PlanResolver recomputes afterwards |
+| `brief` | `claude-sonnet-5` | `medium` | What the evidence shows, where it contradicts itself, what is missing |
+| `authored` | `claude-sonnet-5` | `medium` | Mandates customers wrote, which we cannot predict |
+
+Sonnet 5 is $2/$10 per million tokens against Opus 5's $5/$25 — 60% off both
+sides of the meter for work that was never reasoning-bound. Each is one env var
+(`AGENT_MODEL_CONVENING`, `AGENT_MODEL_BRIEF`, `AGENT_MODEL_AUTHORED`), and
+`AiProvider::forTask()` returns a configured copy so one task's model can never
+leak onto the next caller. An unknown task name falls back to the default rather
+than throwing: a typo must not take down a run.
+
+**Convening is the one to think hardest about before going cheaper.** Haiku 4.5
+is $1/$5 and the extraction is well within it — but `basis`, the stated-versus-
+inferred judgement, is the trust mechanism the whole review screen rests on, and
+it is the first thing a smaller model blurs. If you drop it, check the
+stated/inferred split against a contract you know before you keep it.
+
+**What the schema may say is narrower than JSON Schema.** Structured outputs
+takes a subset: no numeric or length bounds, no array cardinality,
+`additionalProperties` only ever false, and at most 24 optional parameters
+counted across every nesting level and every place a shape is inlined. The
+Python and TypeScript SDKs strip the unsupported keywords client-side; the PHP
+one does not, so `StructuredSchema` does it here — the builders go on saying
+`minimum: 1` because it documents the intent and because PlanResolver enforces
+it after the run regardless. The optional-parameter budget is not strippable, so
+`AnthropicProviderTest` holds both schemas under it.
+
+---
+
+## Starting from the contract
+
+Everything above assumes somebody types the plan in. That is the right model of
+where a plan comes from — a person decides it — and in the cases this product is
+aimed at it is also a transcription exercise, because the plan already exists.
+It is in the engagement of terms the parties have just signed, along with the
+dates, the deliverables and the acceptance tests.
+
+So drop the contract on the Circles page instead. What you land in is a working
+Circle, not a form and not a review queue:
+
+| Out of the document | Into the Circle |
+|---|---|
+| Recitals and scope | The mission statement — name, purpose, term dates |
+| Who is engaging whom | The parties, with the position each holds |
+| Phases, packages, deliverables | The goal tree, with acceptance conditions and the clause each came from |
+| Dated deliverables | A commitment against the goal it belongs to, owed by a party |
+| What it leaves unsettled | Draft decisions with nobody named against them |
+| The document itself | Filed as evidence against every goal it produced |
+
+and a Steward brief queued behind it, so the Circle has a summary and its gaps
+flagged by the time anyone reads it.
+
+**Two acts, by two actors, and keeping them apart is the whole design.** The
+**Circle Convener** — the second agent that ships with the product — reads the
+document and writes one derived artifact. It renames nothing, adds no party and
+creates no goal. Everything above is then written by the *person* who convened:
+the goals through `GoalService` under their name, the mission statement through
+the audited path with a before and after, the parties and commitments and
+decisions as though entered by hand.
+
+The Convener holds `read_only`, whose ceiling is `circle.view` and
+`resource.agent_read` and nothing else. It needs no more, because it never
+writes the plan — and that is the point rather than an accident. The most
+consequential object in a Circle is the one saying who owes what to whom and by
+when, and an agent able to write it directly would be putting a model's reading
+of a contract into the record with nobody's name against it. Convening writes
+immediately, but it writes as somebody.
+
+**The model reads; the application calculates.** `ConveningSchema` is held to
+`OutputSchema`'s bar — a field exists only if a language model is the only thing
+that can answer it — and four things are decided in PHP because of it. No date:
+a schedule is a date the document states, or a quantity and a unit measured from
+commencement, and `PlanResolver` turns "within 20 business days" into the 29th of
+March against a calendar. No structure: `level` says how deeply a step nests and
+the tree is assembled in PHP, where the depth cap is enforced and a level that
+jumps is reported rather than dropped. No party matching: "the Supplier" is
+resolved by string comparison, and a near-miss is left unassigned, because work
+given to the wrong company is worse than work given to nobody. And no judgement
+about which steps are deliverables — a step becomes a commitment if nothing hangs
+beneath it and it has a date, which is structural, so it is answered structurally.
+
+Which means **re-reading a plan against a different start date calls no model**.
+`GET /circles/{circle}/convening?anchor=…` re-resolves stored output: same plan,
+periods measured from somewhere else, free and identical every time.
+
+**Every line says stated or inferred.** Not a confidence score — a reviewer with
+twenty rows in front of them cannot calibrate 0.72. What they need is to know
+which lines to check against the contract. Inferred is not a defect: a contract
+naming a deliverable and no milestone still implies work, and proposing it is
+the useful part. It is drawn in the derived treatment used everywhere else for
+machine-made content.
+
+Because the plan is written immediately, the reading it came from is kept as a
+**receipt** rather than a gate — under "Convening" in the Circle's own menu —
+and the receipt is worth more than the gate was. The goals are now editable in
+the ordinary places, which is where somebody will actually change them; what
+they cannot get anywhere else is which lines the contract stated and which the
+machine worked out, what had to be repaired, and which dates were computed from
+what. A computed date carries its period on the face of the row, because a
+plausible-looking wrong date is the single most likely thing to survive a
+review — and it is now a date somebody may already be working to.
+
+Two refusals worth knowing about. **A contract that has already concluded does
+not expire the Circle**: the expiry is an authorisation decision and the gate
+would refuse every write on the next request, while the document's end date is
+a fact about the document. And **a Circle that already has a plan is not written
+into again** — reading the same contract twice is how a variation arrives, but
+writing the second reading on top of the first would silently double every goal.
+In both cases the reading still happens and the response says why nothing was
+written.
+
+### What convening does not do
+
+- **It creates no Circle on its own.** There is no endpoint that takes a
+  document and returns a Circle. Convening happens inside one, and every write
+  is somebody's.
+- **It reads nothing about money.** Rates, caps and liquidated damages are in
+  every engagement of terms and none of them are extracted. §21 holds:
+  `financial` is a classification with nothing registered under it.
+- **It proposes no engagement.** An engagement bounds the gate, and a contract
+  term read out of a PDF is not a basis on which to start refusing somebody's
+  writes. The dates land on the Circle, visible and editable.
+- **It makes no claims.** A plan is what a document says it will do, not an
+  assertion about the world. Claims are the Steward's job, and the brief queued
+  behind convening is where they come from — cited, at `derived`, reviewable.
+- **It reconciles no second document.** Uploading a variation and asking what
+  changed is the obvious next thing and is not built.
+- **It tells nobody.** A Circle appearing fully formed is not yet something
+  §22's transport carries.
 
 ---
 
@@ -403,6 +541,7 @@ api/                     Laravel 12 · PHP 8.4
     Evidence/            ingest, versioning, signed storage access
     Agent/               AgentRunner, retrieval guard, prompts, the action ledger
       Tools/             ToolRegistry and the handlers that actually do things
+    Convening/           reading an engagement of terms into a proposed plan
     Work/                openings, applications, engagements, records, packages
     Ai/                  provider interface + Anthropic implementation
     Exports/             the mission packet
@@ -410,6 +549,7 @@ api/                     Laravel 12 · PHP 8.4
   tests/                 feature tests + fixture generators
 web/                     Astro 7 · React 19 islands · Tailwind 4
   src/components/Trust.tsx   the trust vocabulary, rendered
+  src/components/ConveningView.tsx  the plan a contract was read as, before anyone accepts it
   src/components/MarketView.tsx  open work, contracts and the record — no Circle
   src/components/HiringView.tsx  the other side of the same thing, inside one
   src/layouts/Marketing.astro  the public site shell
@@ -450,10 +590,11 @@ agent builder, no autonomous external communication or source-system writes, no
 Drive/SharePoint/email/Zoho/GitHub/Linear connectors, no verifiable credentials
 or blockchain, no enterprise SSO/SCIM/billing, no nested-organisation RBAC.
 
-Three of those have since been reversed deliberately and are recorded as such in
+Four of those have since been reversed deliberately and are recorded as such in
 the spec rather than quietly dropped: §20.4 reverses "no general agent builder",
 §21 reverses the implicit assumption that both parties already know each other,
-and §22 reverses §20.3's refusal of a Circle-wide room. What §21 does *not*
+§22 reverses §20.3's refusal of a Circle-wide room, and §23 reverses the
+assumption running through §1-19 that a plan is always typed in by hand. What §21 does *not*
 reverse is the gate: an opening is the single object reachable without a Circle,
 and it is bounded by its own columns.
 
@@ -486,11 +627,15 @@ Beyond those, the following are specified but **not implemented** in this build:
 - **Realtime.** Processing status is polled, not pushed; Reverb is not wired up.
 - **A generated OpenAPI document.** Routes are defined in `api/routes/api.php`
   and mirror spec §15.
-- **The live agent path is unverified against a real model.** No API key was
-  available in this environment, so agent model calls have only been exercised
-  against a scripted provider. The retrieval guard, persistence, citation
-  validation, tool proposal, execution and audit behaviour are covered by tests;
-  the shape of a real Claude response is not.
+- **Tool execution is unverified against a real model.** The read paths are
+  not: a Steward brief and a convening run have both been driven end to end
+  against live Claude, which is what turned up three schema constraints the
+  scripted provider could never have — unsupported keywords, an open `locator`
+  object, and an optional-parameter budget. What has still only been exercised
+  against a scripted provider is an `execute`-mode agent proposing a tool call,
+  so `tool_calls.arguments` — now a JSON string the runner decodes, since there
+  is no way to express "any object" — has not been seen coming back from a real
+  model.
 - **No transport for a remotely-hosted party agent.** `agent_connections`
   records the endpoint, auth mode and key fingerprint, and admission binds a
   blueprint and gives it an instance — but nothing signs a webhook or speaks MCP

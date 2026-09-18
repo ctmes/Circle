@@ -23,6 +23,14 @@ class AgentBlueprint extends Model
 
     public const STEWARD = 'circle_steward';
 
+    /**
+     * The second agent that ships with the product (spec 23). Read-only
+     * in the strictest sense the enum has: it reads a document and returns
+     * a proposal, and the goals that proposal becomes are written by the
+     * person who accepts it.
+     */
+    public const CONVENER = 'circle_convener';
+
     protected $fillable = [
         'key', 'organisation_id', 'circle_id', 'created_by_user_id', 'is_system',
         'execution_mode', 'provider', 'status', 'name', 'mandate', 'instructions',

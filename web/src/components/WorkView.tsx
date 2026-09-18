@@ -44,7 +44,7 @@ import {
  */
 export function WorkView({ circleId }: { circleId: string }) {
   return (
-    <CircleFrame circleId={circleId} tab="">
+    <CircleFrame circleId={circleId} tab="tree">
       {(circle) => <Body circleId={circleId} circle={circle} />}
     </CircleFrame>
   );
@@ -58,6 +58,9 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
   const canComment = perms.includes("comment.create") && !circle?.is_closed;
   const canBranch = perms.includes("goal.branch") && !circle?.is_closed;
   const canMerge = perms.includes("goal.merge") && !circle?.is_closed;
+  // Filing a document against a node changes that node's record and puts a new
+  // item in the vault, so it takes both rights rather than either.
+  const canFile = canUpdate && perms.includes("resource.upload");
 
   const [composingUnder, setComposingUnder] = useState<string | null | false>(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -144,7 +147,7 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
         {stats.unowned > 0 && (
           <span
             className="text-[0.8125rem] text-[var(--ink-muted)]"
-            title="Work with neither a person nor a company answerable for it."
+            title="Work that hasn't been assigned to a person or a company."
           >
             {stats.unowned} unassigned
           </span>
@@ -201,9 +204,9 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
       {goals.length === 0 ? (
         <Panel>
           <Empty>
-            Nothing planned yet. A goal is an outcome someone is answerable for by
-            a date — start with the two or three that decide whether this mission
-            succeeds, then break each one down.
+            Nothing planned yet. A goal is something specific that someone owns,
+            with a date on it. Start with the two or three that decide whether
+            this succeeds, then break each one down.
           </Empty>
         </Panel>
       ) : (
@@ -212,6 +215,11 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
           goals={goals}
           selectedId={selected}
           onSelect={setSelected}
+          // Every row takes a drop. The tree is where people already look for a
+          // piece of work, so it is where the drawing for it should be able to
+          // land — the alternative is the vault, three screens away, which is
+          // how a Circle ends up with 400 files and a plan pointing at none.
+          fileDrop={{ canFile, onFiled: reloadAll }}
           renderDetail={(goal) => (
             <GoalDetail
               goal={goal}
@@ -306,6 +314,20 @@ function GoalDetail({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem]">
         <GoalStatusChip goal={goal} />
 
+        {/*
+          The way through to everything this panel has no room for: the files
+          filed against it, the whole conversation, what has been put on the
+          record, what a branch is proposing for it.
+        */}
+        {goal.id !== null && (
+          <a
+            href={`/circles/${circleId}/jobs/${goal.id}`}
+            className="font-[560] text-[var(--accent)] no-underline hover:underline"
+          >
+            Open this job
+          </a>
+        )}
+
         <span className="text-[var(--ink-muted)]">
           {goal.owner?.name ?? <span className="text-[var(--ink-faint)]">Unassigned</span>}
         </span>
@@ -313,7 +335,7 @@ function GoalDetail({
         {goal.responsible_party && (
           <span
             className="rounded-[var(--r-chip)] bg-[var(--paper-sunk)] px-2 py-0.5 text-xs font-[560] text-[var(--ink-muted)]"
-            title={`${goal.responsible_party.label} is answerable for this as ${goal.responsible_party.role}.`}
+            title={`${goal.responsible_party.label} is responsible for this, as the ${goal.responsible_party.role}.`}
           >
             {goal.responsible_party.label}
           </span>
@@ -339,7 +361,7 @@ function GoalDetail({
 
       {!goal.acceptance_condition && !goal.accepted_at && (
         <p className="text-xs text-[var(--ink-faint)]">
-          No acceptance condition. Completion is whatever the owner says it is.
+          No acceptance condition set, so “done” is whatever the owner says it is.
         </p>
       )}
 
@@ -396,7 +418,7 @@ function GoalDetail({
             <Button
               variant="primary"
               disabled={busy}
-              title={goal.acceptance_condition ?? "Accept this work as done."}
+              title={goal.acceptance_condition ?? "Sign this work off as done."}
               onClick={() => act(() => api.post(`/goals/${goal.id}/accept`))}
             >
               Accept
@@ -411,8 +433,8 @@ function GoalDetail({
       */}
       {atDepthLimit && (
         <p className="text-xs text-[var(--ink-faint)]">
-          This is the deepest level the tree goes. Work below it belongs in a
-          commitment, which is where an individual piece of work lives.
+          This is as deep as the tree goes. Anything smaller belongs in a
+          commitment, which is where a single piece of work lives.
         </p>
       )}
 
@@ -631,8 +653,8 @@ function GoalComposer({
           </select>
         </Field>
 
-        {/* The company answerable for it, which outlives whoever owns it today. */}
-        <Field label="Answerable company">
+        {/* The company on the hook for it, which outlives whoever owns it today. */}
+        <Field label="Responsible company">
           <select value={party} onChange={(e) => setParty(e.target.value)} className={inputClass}>
             <option value="">not set</option>
             {parties.map((p) => (
@@ -655,7 +677,7 @@ function GoalComposer({
 
       <Field
         label="Done when"
-        hint="Agree this now. Without it, completion is whatever the owner says it is."
+        hint="Agree this up front. Without it, “done” is whatever the owner says it is."
       >
         <input
           value={condition}
@@ -715,7 +737,7 @@ function ProgressPip({ goal }: { goal: Goal }) {
       title={
         goal.progress_is_derived
           ? "Averaged from this goal's sub-goals."
-          : "Reported by whoever owns this."
+          : "Reported by whoever owns it."
       }
     >
       {goal.progress}%

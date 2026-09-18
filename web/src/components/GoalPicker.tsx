@@ -44,7 +44,7 @@ export function GoalField({
   goals,
   value,
   onChange,
-  hint = "What part of the plan is this about? Leave it empty if it is about the mission at large.",
+  hint = "What part of the plan is this about? Leave it empty if it is about the Circle as a whole.",
 }: {
   goals: Goal[];
   value: string;
@@ -60,7 +60,7 @@ export function GoalField({
   return (
     <Field label="Part of the plan" hint={hint}>
       <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
-        <option value="">the mission at large</option>
+        <option value="">the Circle as a whole</option>
         {flat.map((g) => (
           <option key={g.id} value={g.id!}>
             {/* Figure space, so the indent survives a select element. */}
@@ -76,9 +76,10 @@ export function GoalField({
 /**
  * Where a record says which goal it belongs to.
  *
- * It links into the tree rather than just naming it: from a merged record list
- * the next question is almost always "what else is on that goal", and the plan
- * is where that is answered.
+ * It links rather than just naming: from a merged record list the next question
+ * is almost always "what else is on that job", and the job's own screen is
+ * where that is answered in full. It used to point at an anchor in the plan,
+ * which put the reader on the right row of a tree and left them to expand it.
  */
 export function GoalChip({
   goal,
@@ -91,8 +92,8 @@ export function GoalChip({
 
   return (
     <a
-      href={`/circles/${circleId}#${goal.id}`}
-      title="Open this goal in the plan"
+      href={`/circles/${circleId}/jobs/${goal.id}`}
+      title="Open this job"
       className="rounded-[var(--r-chip)] bg-[var(--paper-sunk)] px-2 py-0.5 text-xs font-[560] text-[var(--ink-muted)] no-underline transition-colors hover:text-[var(--ink)]"
     >
       {goal.title ?? "a goal"}

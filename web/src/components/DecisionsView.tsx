@@ -35,16 +35,31 @@ export function DecisionsBody({
   canCreate,
   canApprove,
   goals,
+  goalId = null,
 }: {
   circleId: string;
   canCreate: boolean;
   canApprove: boolean;
   goals: Goal[];
+  /**
+   * Narrow the list to one node of the plan, and file new records there.
+   *
+   * Set only by the job screen. The composer's goal picker goes with it:
+   * somebody recording this from inside a package has already answered "what
+   * is this about", and asking again invites an answer that contradicts the
+   * screen they are standing on.
+   */
+  goalId?: string | null;
 }) {
   const [composing, setComposing] = useState(false);
   const { data, error, loading, reload } = useAsync<Decision[]>(
-    () => api.get<{ data: Decision[] }>(`/circles/${circleId}/decisions`).then((r) => r.data),
-    [circleId],
+    () =>
+      api
+        .get<{ data: Decision[] }>(
+          `/circles/${circleId}/decisions${goalId ? `?goal=${goalId}` : ""}`,
+        )
+        .then((r) => r.data),
+    [circleId, goalId],
   );
 
   if (loading) return <Panel><Loading what="decisions" /></Panel>;
@@ -69,6 +84,7 @@ export function DecisionsBody({
         <Composer
           circleId={circleId}
           goals={goals}
+          fixedGoalId={goalId}
           onDone={() => {
             setComposing(false);
             reload();
@@ -192,9 +208,9 @@ function Row({
 
       {decision.status === "superseded" && (
         <p className="mt-3 rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3.5 py-2.5 text-sm text-[var(--ink-muted)]">
-          The approved subject gained a new version after this was approved. The
-          approval covered version {decision.subject.version} only and does not
-          carry forward — a fresh decision is required against the current version.
+          The subject has a new version since this was approved. The approval only
+          covered version {decision.subject.version}, so it doesn't carry over —
+          you'll need a new decision on the current version.
         </p>
       )}
 
@@ -228,8 +244,8 @@ function Row({
             </Button>
           </div>
           <p className="text-xs leading-relaxed text-[var(--ink-faint)]">
-            Only the named approver can resolve this, and the approval binds to
-            version {decision.subject.version ?? "—"} specifically.
+            Only the named approver can resolve this, and the approval applies to
+            version {decision.subject.version ?? "—"} only.
           </p>
         </div>
       )}
@@ -266,10 +282,13 @@ function Row({
 function Composer({
   circleId,
   goals,
+  fixedGoalId = null,
   onDone,
 }: {
   circleId: string;
   goals: Goal[];
+  /** Set on the job screen: the node is decided, so it is stated, not asked. */
+  fixedGoalId?: string | null;
   onDone: () => void;
 }) {
   const { data: members } = useAsync<{ members: Member[] }>(
@@ -285,7 +304,7 @@ function Composer({
   const [description, setDescription] = useState("");
   const [approver, setApprover] = useState("");
   const [subjectId, setSubjectId] = useState("");
-  const [goalId, setGoalId] = useState("");
+  const [goalId, setGoalId] = useState(fixedGoalId ?? "");
   const [expires, setExpires] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -338,7 +357,7 @@ function Composer({
         </Field>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Approver" hint="Only members who hold decision.approve appear here.">
+          <Field label="Approver" hint="Only members who can approve decisions appear here.">
             <select value={approver} onChange={(e) => setApprover(e.target.value)} className={inputClass}>
               <option value="">leave as a draft</option>
               {eligible.map((m) => (
@@ -359,16 +378,18 @@ function Composer({
           </Field>
         </div>
 
-        <GoalField
-          goals={goals}
-          value={goalId}
-          onChange={setGoalId}
-          hint="Which part of the plan this decides. Separate from the subject below, which is the exact artefact being approved."
-        />
+        {fixedGoalId === null && (
+          <GoalField
+            goals={goals}
+            value={goalId}
+            onChange={setGoalId}
+            hint="Which part of the plan this decides. That is different from the subject below, which is the exact item being approved."
+          />
+        )}
 
         <Field
           label="Subject of the approval"
-          hint="The approval will bind to this item's current version. A later version invalidates it."
+          hint="The approval applies to this item's current version. A newer version cancels it."
         >
           <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className={inputClass}>
             <option value="">no bound subject</option>

@@ -27,6 +27,16 @@ class FakeAiProvider implements AiProvider
         $this->response = $response;
     }
 
+    /** Which task asked, so a test can assert the routing without a real model. */
+    public ?string $lastTask = null;
+
+    public function forTask(string $task): AiProvider
+    {
+        $this->lastTask = $task;
+
+        return $this;
+    }
+
     public function isConfigured(): bool
     {
         return true;

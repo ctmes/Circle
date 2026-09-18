@@ -1,0 +1,10 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { ConveningView } from "../../../components/ConveningView";
+
+export const prerender = false;
+const { circleId } = Astro.params;
+---
+<Base title="Convening">
+  <ConveningView client:load circleId={circleId!} />
+</Base>

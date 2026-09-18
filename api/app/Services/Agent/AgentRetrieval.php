@@ -39,9 +39,14 @@ class AgentRetrieval
      * decides per item, per instance, every time — so an agent brought by a
      * contractor is filtered by exactly the code that filters ours.
      *
+     * @param  list<string>|null  $onlyItemIds  Narrows the candidate set to named
+     *         evidence items. Narrowing only: an item listed here is still put
+     *         through the gate, and one that is not agent-readable is still
+     *         refused. Convening uses it so that reading a contract does not
+     *         sweep in every other document in the Circle (spec 23).
      * @return array{sources: list<array>, manifest: array}
      */
-    public function gather(AgentInstance $agent, Circle $circle, AgentRun $run): array
+    public function gather(AgentInstance $agent, Circle $circle, AgentRun $run, ?array $onlyItemIds = null): array
     {
         $maxSources     = (int) config('circle.agent.max_sources');
         $maxCharsPerDoc = (int) config('circle.agent.max_chars_per_source');
@@ -51,12 +56,14 @@ class AgentRetrieval
             // A cheap pre-filter only. The authoritative check is the per-item
             // AccessGate call below — this just avoids loading the whole vault.
             ->where('agent_read', true)
+            ->when($onlyItemIds !== null, fn ($q) => $q->whereIn('id', $onlyItemIds))
             ->with(['resource', 'versions'])
             ->get();
 
         $sources  = [];
         $manifest = [
             'circle_id'         => $circle->id,
+            'scoped_to_items'   => $onlyItemIds,
             'considered'        => $items->count(),
             'retrieved'         => 0,
             'denied'            => 0,
@@ -112,7 +119,14 @@ class AgentRetrieval
                 'integrity_status'    => $version->integrityStatus()->value,
                 'review_status'       => $item->review_status->value,
                 'classification'      => $item->classification->value,
-                'age_days'            => $version->created_at?->diffInDays(now()),
+                // Floored to a whole day. Carbon 3's diffInDays() returns a
+                // float, so a version uploaded moments ago came out as
+                // 5.787037037037E-6 and went into the prompt verbatim — the
+                // model was being told an item was "5.787037037037E-6 days
+                // ago". EvidenceStaleness has always declared this an int.
+                'age_days'            => $version->created_at === null
+                    ? null
+                    : (int) floor($version->created_at->diffInDays(now(), absolute: true)),
                 'content'             => $text,
             ];
 

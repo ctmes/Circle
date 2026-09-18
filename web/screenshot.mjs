@@ -63,8 +63,24 @@ const circles = await fetch(`${API}/circles`, {
 const circle = circles.data.find((c) => !c.is_closed) ?? circles.data[0];
 console.log(`  using Circle ${circle.id} (${circle.is_closed ? "closed" : "open"})`);
 
+// A job has a screen of its own now, and it is only reachable by id — so the
+// walk has to ask the plan which one to open rather than guessing a path.
+const tree = await fetch(`${API}/circles/${circle.id}/goals`, {
+  headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+}).then((r) => r.json());
+
+const job = tree.data?.[0] ?? null;
+console.log(job ? `  using job ${job.id} (${job.title})` : "  no jobs in this Circle");
+
 const views = [
-  ["03-plan", "", "h1"],
+  // The main screen is the branch diagram now, so wait on the drawing rather
+  // than on a heading.
+  ["03-plan", "", "svg"],
+  ["03b-tree", "/tree", "h1"],
+  // Main drawn as the tree rather than the diagram. The switch remembers its
+  // answer per Circle in localStorage, so the shape is set before navigating.
+  ["03c-main-as-tree", "", "[role=tree]", () => ({ shape: "tree" })],
+  ["03d-main-as-diagram", "", "svg", () => ({ shape: "diagram" })],
   ["04-context", "/context", "table, ul"],
   ["05-record", "/record", "section"],
   // The three routes Record replaced. They still resolve, each opening on its
@@ -78,9 +94,30 @@ const views = [
   ["11-export", "/export", "section"],
 ];
 
-for (const [name, path, waitFor] of views) {
+for (const [name, path, waitFor, prefs] of views) {
+  if (prefs) {
+    await page.evaluate(
+      ([id, p]) => localStorage.setItem(`circle.main.shape.${id}`, p.shape),
+      [circle.id, prefs()],
+    );
+  }
   await page.goto(`${WEB}/circles/${circle.id}${path}`, { waitUntil: "networkidle" });
   await shot(name, waitFor);
+}
+
+// The job screen, and each of its four sections.
+if (job) {
+  await page.goto(`${WEB}/circles/${circle.id}/jobs/${job.id}`, { waitUntil: "networkidle" });
+  await shot("13-job-files", "h1");
+
+  for (const [section, name] of [
+    ["Discussion", "14-job-discussion"],
+    ["Record", "15-job-record"],
+    ["Changes", "16-job-changes"],
+  ]) {
+    await page.getByRole("button", { name: new RegExp(`^${section}`) }).first().click();
+    await shot(name, "section");
+  }
 }
 
 // Dark theme, since the palette supports it.
@@ -93,7 +130,13 @@ const dark = await browser.newContext({
 const darkPage = await dark.newPage();
 darkPage.on("pageerror", (e) => pageErrors.push(e.message));
 await darkPage.goto(`${WEB}/login`);
-await darkPage.evaluate((t) => localStorage.setItem("circle.token", t), token);
+// The app reads its theme from localStorage alone and never consults
+// prefers-color-scheme, so the context's colorScheme did nothing here and
+// this shot had been quietly capturing the light palette.
+await darkPage.evaluate((t) => {
+  localStorage.setItem("circle.token", t);
+  localStorage.setItem("circle-theme", "dark");
+}, token);
 await darkPage.goto(`${WEB}/circles/${circle.id}/context`, { waitUntil: "networkidle" });
 await darkPage.evaluate(() => document.fonts.ready);
 await darkPage.waitForTimeout(600);

@@ -43,14 +43,14 @@ export function OrganisationView({ slug }: { slug: string }) {
             <p className="eyebrow">Organisation</p>
             <h1 className="display mt-1.5 text-[2rem] font-[680] leading-tight">{data.name}</h1>
             <p className="mt-2 max-w-xl text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
-              Circles you belong to. Membership of {data.name} does not, by
-              itself, grant access to any of them.
+              Circles you belong to. Being a member of {data.name} doesn't, on
+              its own, give you access to any of them.
             </p>
           </header>
 
           <Panel title="Your Circles here">
             {data.circles.length === 0 ? (
-              <Empty>You are not a member of any Circle in this organisation.</Empty>
+              <Empty>You're not in any Circle in this organisation.</Empty>
             ) : (
               <ul>
                 {data.circles.map((c, i) => (

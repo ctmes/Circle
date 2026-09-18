@@ -134,7 +134,7 @@ function Body({
           </div>
 
           {items.length === 0 ? (
-            <Empty>No evidence matches. Anything uploaded here is preserved unchanged.</Empty>
+            <Empty>Nothing matches. Anything uploaded here is kept exactly as it arrived.</Empty>
           ) : (
             <ul>
               {items.map((item, i) => (
@@ -194,7 +194,7 @@ function Body({
           <Detail key={selected} itemId={selected} circleId={circleId} onChanged={reload} />
         ) : (
           <Panel title="Record">
-            <Empty>Select an item to see its provenance, versions and dependents.</Empty>
+            <Empty>Pick an item to see where it came from, its versions, and what relies on it.</Empty>
           </Panel>
         )}
       </div>

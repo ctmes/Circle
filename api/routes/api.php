@@ -8,10 +8,12 @@ use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\CircleController;
 use App\Http\Controllers\Api\ClaimController;
 use App\Http\Controllers\Api\CommentController;
+use App\Http\Controllers\Api\ConveningController;
 use App\Http\Controllers\Api\DecisionController;
 use App\Http\Controllers\Api\EngagementController;
 use App\Http\Controllers\Api\EvidenceController;
 use App\Http\Controllers\Api\GoalController;
+use App\Http\Controllers\Api\GoalEvidenceController;
 use App\Http\Controllers\Api\HistoryController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\OrganisationController;
@@ -142,6 +144,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/goals/{goal}/reschedule', [GoalController::class, 'reschedule']);
     Route::post('/schedule-changes/{change}/agree', [GoalController::class, 'agreeReschedule']);
 
+    // Documents filed against a node of the plan. Evidence still belongs to
+    // the Circle rather than to a goal — this is an index onto the vault, not
+    // a second copy of it, and it can never widen who may read an item.
+    Route::get('/goals/{goal}/evidence', [GoalEvidenceController::class, 'index']);
+    Route::post('/goals/{goal}/evidence', [GoalEvidenceController::class, 'attach']);
+    Route::delete('/goals/{goal}/evidence/{evidenceItem}', [GoalEvidenceController::class, 'detach']);
+
     // --- Comments ----------------------------------------------------------
     // Branches of the plan. A branch holds proposed changes, not goals — see
     // GoalBranchService for why it is a change-set rather than a copy.
@@ -186,6 +195,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/agent-actions/{action}/reject', [AgentStudioController::class, 'reject']);
     Route::post('/agent-actions/{action}/execute', [AgentStudioController::class, 'execute']);
     Route::get('/agent-tools/catalogue', [AgentStudioController::class, 'catalogue']);
+
+    // --- Convening from an engagement of terms (spec 23) --------------------
+    // The document is ordinary evidence, uploaded through the routes above; all
+    // that is added here is reading it. `show` with an `anchor` re-resolves the
+    // same proposal against a different start date without calling a model.
+    Route::post('/circles/{circle}/convening', [ConveningController::class, 'store']);
+    Route::get('/circles/{circle}/convening', [ConveningController::class, 'show']);
+    Route::post('/circles/{circle}/convening/{artifact}/accept', [ConveningController::class, 'accept']);
 
     // Admission: the counterparty accepts a specific key, and the acceptance
     // becomes a decision in the packet rather than a setting nobody recalls.

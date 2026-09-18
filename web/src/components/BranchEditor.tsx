@@ -105,7 +105,7 @@ export function BranchEditor({
               <Button
                 variant="danger"
                 disabled={busy}
-                title="On merge it is marked abandoned, never deleted — everything that cited it still resolves, and the packet can still say the work existed and was dropped."
+                title="On merge it is marked abandoned, never deleted — anything that cited it still works, and the record still shows the work existed and was dropped."
                 onClick={() => stage({ change_type: "remove", goal_id: goal.id })}
               >
                 Propose dropping it
@@ -147,7 +147,7 @@ export function BranchEditor({
               </select>
             </Field>
 
-            <Field label="Answerable company">
+            <Field label="Responsible company">
               <select
                 value={party}
                 onChange={(e) => setParty(e.target.value)}
@@ -209,7 +209,7 @@ export function BranchEditor({
                 }
 
                 if (Object.keys(attributes).length === 0) {
-                  setError(new Error("Nothing has been changed yet."));
+                  setError(new Error("You haven't changed anything yet."));
                   return;
                 }
 
@@ -244,7 +244,7 @@ export function BranchEditor({
 
           <Field
             label="Done when"
-            hint="Agree this now. Without it, completion is whatever the owner says it is."
+            hint="Agree this up front. Without it, “done” is whatever the owner says it is."
           >
             <input
               value={childCondition}

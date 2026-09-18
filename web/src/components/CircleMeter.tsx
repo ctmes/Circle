@@ -180,7 +180,7 @@ export function CircleMeterControl({
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        title="Set how far along this mission is"
+        title="Set how far along this Circle is"
         className={`-mx-1.5 -my-1 inline-flex items-center rounded-[var(--r-control)] px-1.5 py-1 transition-colors duration-150 hover:bg-[var(--paper-sunk)] ${
           busy ? "opacity-60" : ""
         }`}

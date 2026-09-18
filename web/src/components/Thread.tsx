@@ -52,13 +52,7 @@ export function Discussion({
 
   return (
     <div className="space-y-3">
-      {threads.length === 0 && !composing && (
-        <Empty>
-          {canComment
-            ? "No discussion yet. Ask a question here rather than in email — it stays attached to this item."
-            : "No discussion yet."}
-        </Empty>
-      )}
+      {threads.length === 0 && !composing && <Empty>No discussion yet.</Empty>}
 
       {threads.map((t) => (
         <ThreadCard
@@ -171,7 +165,7 @@ function ThreadCard({
             <Button
               variant="quiet"
               disabled={busy}
-              title="Make this visible to every party in the Circle. This cannot be undone."
+              title="Make this visible to every party in the Circle. You can't undo it."
               onClick={() => act(() => api.post(`/threads/${thread.id}/share`))}
             >
               Share with Circle
@@ -281,7 +275,7 @@ function Message({
         {comment.on_record && (
           <span
             className="rounded-[var(--r-chip)] bg-[var(--accent-soft)] px-2 py-0.5 text-xs font-[560] text-[var(--accent)]"
-            title="Included in the export packet at closure."
+            title="Goes into the export packet when the Circle closes."
           >
             On record
           </span>
@@ -305,7 +299,7 @@ function Message({
       {canComment && !comment.on_record && (
         <button
           disabled={busy}
-          title="Include this in the export packet at closure."
+          title="Include this in the export packet when the Circle closes."
           onClick={async () => {
             setBusy(true);
             try {
@@ -525,7 +519,7 @@ function Composer({
         <span>
           Put this on the record
           <span className="block text-xs text-[var(--ink-faint)]">
-            Included in the export packet. Ordinary discussion is not.
+            Goes into the export packet. Ordinary discussion doesn't.
           </span>
         </span>
       </label>

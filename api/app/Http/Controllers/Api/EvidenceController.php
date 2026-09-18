@@ -13,11 +13,13 @@ use App\Models\CircleMembership;
 use App\Models\CircleParty;
 use App\Models\EvidenceItem;
 use App\Models\EvidenceVersion;
+use App\Models\Goal;
 use App\Models\ResourceAccessOverride;
 use App\Services\Audit\AuditChain;
 use App\Services\Authorisation\AccessGate;
 use App\Services\Evidence\EvidenceService;
 use App\Services\Evidence\EvidenceStorage;
+use App\Support\EvidencePresenter;
 use App\Support\MediaType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,6 +33,7 @@ class EvidenceController extends Controller
         private readonly EvidenceStorage $storage,
         private readonly AuditChain $audit,
         private readonly \App\Services\Evidence\SupersessionImpact $impact,
+        private readonly \App\Services\Evidence\GoalFiling $filing,
     ) {}
 
     /**
@@ -87,7 +90,10 @@ class EvidenceController extends Controller
             'downloadable'   => ['nullable', 'boolean'],
             'expires_at'     => ['nullable', 'date', 'after:now'],
             'restricted_to_party_id' => ['nullable', 'string', 'exists:circle_parties,id'],
+            'goal_id'                => ['nullable', 'string'],
         ]);
+
+        $goal = $this->goalFiledAgainst($request, $circle, $data['goal_id'] ?? null);
 
         // The key must live under this Circle's prefix — otherwise a caller
         // could register an object belonging to a Circle they cannot see.
@@ -116,6 +122,10 @@ class EvidenceController extends Controller
         );
 
         ProcessEvidenceVersion::dispatch($item->currentVersion()->id);
+
+        if ($goal !== null) {
+            $this->filing->attach($goal, $item, $request->user());
+        }
 
         return response()->json(['data' => $this->present($item)], 201);
     }
@@ -210,7 +220,15 @@ class EvidenceController extends Controller
             'agent_read'             => ['nullable', 'boolean'],
             'downloadable'           => ['nullable', 'boolean'],
             'restricted_to_party_id' => ['nullable', 'string', 'exists:circle_parties,id'],
+            // Set when the drop landed on a job rather than on the register.
+            // Filing happens here rather than in a second call so that a drop
+            // onto a package cannot half-land: a folder that uploaded and then
+            // failed to attach would leave 140 files in the vault and nothing
+            // on the job somebody was looking at.
+            'goal_id'                => ['nullable', 'string'],
         ]);
+
+        $goal = $this->goalFiledAgainst($request, $circle, $data['goal_id'] ?? null);
 
         $classification = Classification::from($data['classification'] ?? 'internal');
         $partyScope     = $this->partyScope($request, $circle, $data['restricted_to_party_id'] ?? null);
@@ -244,6 +262,10 @@ class EvidenceController extends Controller
             );
 
             ProcessEvidenceVersion::dispatch($item->currentVersion()->id);
+
+            if ($goal !== null) {
+                $this->filing->attach($goal, $item, $request->user());
+            }
 
             $created[] = $this->present($item);
         }
@@ -596,43 +618,41 @@ class EvidenceController extends Controller
         return $partyId;
     }
 
+    /**
+     * The job a drop landed on, if it landed on one.
+     *
+     * Two checks, both of which `exists:goals,id` misses. The node has to be
+     * in this Circle — otherwise a caller could upload here and file the
+     * result against a plan they have never seen — and filing against it is a
+     * change to that job, so it is gated on `goal.update` with the goal named
+     * as the subject, which is what confines a contractor under a scoped
+     * engagement to their own package (spec §21.2).
+     */
+    private function goalFiledAgainst(Request $request, Circle $circle, ?string $goalId): ?Goal
+    {
+        if ($goalId === null) {
+            return null;
+        }
+
+        $goal = Goal::where('circle_id', $circle->id)->whereKey($goalId)->first();
+
+        abort_if($goal === null, 422, 'That goal is not part of this Circle.');
+
+        $this->gate->authorise($request->user(), Permission::GoalUpdate, $circle, subject: $goal);
+
+        return $goal;
+    }
+
     // ------------------------------------------------------------ presenters
 
     private function present(EvidenceItem $item, bool $detailed = false): array
     {
-        $current = $item->currentVersion();
-
-        $payload = [
-            'id'               => $item->id,
-            'resource_id'      => $item->resource_id,
-            'name'             => $item->resource->name,
-            // The three trust axes stay separate — never collapsed into one
-            // "verified" badge (spec §6).
-            'origin_status'    => $item->origin_status->value,
-            'integrity_status' => $current?->integrityStatus()->value ?? $item->integrity_status->value,
-            'review_status'    => $item->review_status->value,
-            'classification'   => $item->classification->value,
-            // Stated on every row, not just the detail pane: someone deciding
-            // whether to put their commercials in needs to see, at a glance,
-            // that the last person who did got a scope honoured.
-            'restricted_to_party' => $item->restricted_to_party_id === null ? null : [
-                'id'    => $item->restricted_to_party_id,
-                'label' => $item->restrictedToParty?->label(),
-            ],
-            'agent_read'       => $item->agent_read,
-            'downloadable'     => $item->downloadable,
-            'source_label'     => $item->source_label,
-            'source_url'       => $item->source_url,
-            'uploader'         => ['id' => $item->uploader_user_id, 'name' => $item->uploader?->name],
-            'expires_at'       => $item->expires_at?->toISOString(),
-            'stale_at'         => $item->stale_at?->toISOString(),
-            'created_at'       => $item->created_at?->toISOString(),
-            'version_count'    => $item->versions()->count(),
-            'current_version'  => $current ? $this->presentVersion($current) : null,
-        ];
+        // The shape itself lives in EvidencePresenter, because a job's file
+        // list answers with the same rows and two presenters would drift.
+        $payload = EvidencePresenter::item($item);
 
         if ($detailed) {
-            $payload['versions'] = $item->versions->map(fn ($v) => $this->presentVersion($v))->all();
+            $payload['versions'] = $item->versions->map(fn ($v) => EvidencePresenter::version($v))->all();
             $payload['used_by']  = $this->usedBy($item);
         }
 
@@ -641,25 +661,7 @@ class EvidenceController extends Controller
 
     private function presentVersion(EvidenceVersion $version): array
     {
-        return [
-            'id'                    => $version->id,
-            'version_number'        => $version->version_number,
-            'original_filename'     => $version->original_filename,
-            'mime_type'             => $version->mime_type,
-            'byte_size'             => $version->byte_size,
-            'sha256'                => $version->sha256,
-            'lane'                  => $version->lane(),
-            'integrity_status'      => $version->integrityStatus()->value,
-            'processing_status'     => $version->processing_status->value,
-            'processing_error'      => $version->processing_error,
-            'extracted_text_status' => $version->extracted_text_status->value,
-            'preview_status'        => $version->preview_status->value,
-            'transcript_status'     => $version->transcript_status->value,
-            'metadata'              => $version->metadata_json,
-            'created_by'            => ['id' => $version->created_by_user_id, 'name' => $version->createdBy?->name],
-            'supersedes_version_id' => $version->supersedes_version_id,
-            'created_at'            => $version->created_at?->toISOString(),
-        ];
+        return EvidencePresenter::version($version);
     }
 
     /** The "used by" list from spec §12 — what depends on this evidence. */

@@ -37,11 +37,11 @@ export function DiscussionView({ circleId }: { circleId: string }) {
         >
           <div className="space-y-4 px-5 pb-5">
             <p className="max-w-[60ch] text-[0.875rem] leading-relaxed text-[var(--ink-muted)]">
-              For what has not found its place yet. When one of these turns out
-              to be about a goal, a decision or a commitment,{" "}
+              For anything that hasn't found its place yet. When a thread turns
+              out to be about a goal, a decision or a commitment,{" "}
               <strong className="font-[560] text-[var(--ink)]">file it against that</strong> — the
-              whole thread moves, and the record stops being the thing nobody
-              updated.
+              whole thread moves across, so the record stays up to date on its
+              own.
             </p>
 
             <Discussion

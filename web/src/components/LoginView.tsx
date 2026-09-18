@@ -50,7 +50,7 @@ export function LoginView() {
           <div className="inline-flex flex-col items-center gap-3">
             <Wordmark size={22} />
             <p className="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
-              A bounded place for one consequential decision.
+              One shared place for one piece of work, and the record it leaves.
             </p>
           </div>
         </div>
@@ -150,8 +150,8 @@ export function LoginView() {
         </form>
 
         <p className="mx-auto mt-6 max-w-sm text-center text-[0.8125rem] leading-relaxed text-[var(--ink-faint)]">
-          Access to any Circle comes from being invited to it. Belonging to the
-          same organisation grants nothing on its own.
+          You get access to a Circle by being invited to it. Being in the same
+          organisation doesn't grant anything on its own.
         </p>
       </div>
     </main>

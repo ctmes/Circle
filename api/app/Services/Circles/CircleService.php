@@ -193,7 +193,7 @@ class CircleService
     }
 
     /**
-     * Restates what the mission is: its name, its purpose, when it ends.
+     * Restates what the mission is: its name, its purpose, when it runs.
      *
      * These were mass-assigned on the controller until now, which meant the
      * one screen every reader starts from — the mission statement in the
@@ -207,11 +207,16 @@ class CircleService
      * the full before and after rather than a note that something changed — a
      * diff nobody can reconstruct is not evidence of anything.
      *
-     * @param  array<string, mixed>  $changes  Any of name, purpose, expires_at, status.
+     * `starts_at` is here for the same reason the rest are. Convening a Circle
+     * from a contract sets the commencement date, and that date is the origin
+     * every other date in the plan was measured from — moving it silently
+     * would move the whole programme with no record of who did it.
+     *
+     * @param  array<string, mixed>  $changes  Any of name, purpose, starts_at, expires_at, status.
      */
     public function updateDetails(Circle $circle, User $actor, array $changes, ?string $reason = null): Circle
     {
-        $fields = array_intersect_key($changes, array_flip(['name', 'purpose', 'expires_at', 'status']));
+        $fields = array_intersect_key($changes, array_flip(['name', 'purpose', 'starts_at', 'expires_at', 'status']));
 
         if ($fields === []) {
             return $circle;

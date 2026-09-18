@@ -9,6 +9,7 @@ use App\Enums\ReviewStatus;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class EvidenceItem extends Model
@@ -50,6 +51,13 @@ class EvidenceItem extends Model
     public function restrictedToParty(): BelongsTo
     {
         return $this->belongsTo(CircleParty::class, 'restricted_to_party_id');
+    }
+
+    /** The nodes of the plan this document is filed against. */
+    public function goals(): BelongsToMany
+    {
+        return $this->belongsToMany(Goal::class, 'evidence_item_goal')
+            ->withPivot(['id', 'attached_by_user_id', 'attached_at']);
     }
 
     /**

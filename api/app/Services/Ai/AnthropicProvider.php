@@ -56,6 +56,33 @@ class AnthropicProvider implements AiProvider
         return $this->apiKey !== null && $this->apiKey !== '';
     }
 
+    /**
+     * A copy of this provider pointed at the model and effort a named task is
+     * configured for (config/circle.php -> agent.tasks).
+     *
+     * The transporter is carried across so a test that injected one keeps it,
+     * and an unknown task returns this provider unchanged rather than throwing
+     * — a typo in a task name should degrade to the default model, not take
+     * down the run.
+     */
+    public function forTask(string $task): AiProvider
+    {
+        $settings = config("circle.agent.tasks.{$task}");
+
+        if (! is_array($settings)) {
+            return $this;
+        }
+
+        return new self(
+            apiKey: $this->apiKey,
+            model: $settings['model'] ?? $this->model,
+            maxTokens: $settings['max_tokens'] ?? $this->maxTokens,
+            timeoutSeconds: $this->timeoutSeconds,
+            effort: $settings['effort'] ?? $this->effort,
+            transporter: $this->transporter,
+        );
+    }
+
     public function name(): string
     {
         return 'anthropic';
@@ -75,7 +102,12 @@ class AnthropicProvider implements AiProvider
         $outputConfig = [
             'format' => [
                 'type'   => 'json_schema',
-                'schema' => $jsonSchema,
+                // Structured outputs takes a subset of JSON Schema and rejects
+                // the rest with a 400 naming one keyword at a time. The Python
+                // and TypeScript SDKs strip these client-side; the PHP one does
+                // not. See StructuredSchema for why the builders keep saying
+                // things this call cannot send.
+                'schema' => StructuredSchema::prepare($jsonSchema),
             ],
         ];
 

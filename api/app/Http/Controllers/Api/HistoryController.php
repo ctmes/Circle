@@ -112,6 +112,73 @@ class HistoryController extends Controller
     }
 
     /**
+     * A goal edit, in the words a reader wants.
+     *
+     * The audit row carries a before and an after for whatever fields moved,
+     * which is the right thing to store and the wrong thing to read: the
+     * History screen and a job's own trail both want a sentence. Fields nobody
+     * would recognise out of context are named rather than quoted — a reader
+     * does not want an acceptance condition's full text twice in a list.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function summariseGoalUpdate(array $meta): string
+    {
+        $after = $meta['after'] ?? [];
+
+        $parts = [];
+
+        if (isset($after['title'])) {
+            $parts[] = 'renamed to "' . $after['title'] . '"';
+        }
+
+        if (array_key_exists('status', $after)) {
+            $parts[] = 'status set to ' . str_replace('_', ' ', (string) $after['status']);
+        }
+
+        if (array_key_exists('owner_user_id', $after)) {
+            $parts[] = $after['owner_user_id'] === null ? 'owner cleared' : 'owner changed';
+        }
+
+        if (array_key_exists('responsible_party_id', $after)) {
+            $parts[] = $after['responsible_party_id'] === null
+                ? 'no company responsible'
+                : 'responsible company changed';
+        }
+
+        if (array_key_exists('acceptance_condition', $after)) {
+            $parts[] = 'acceptance condition changed';
+        }
+
+        return $parts === [] ? 'Goal updated' : 'Goal ' . implode(', ', $parts);
+    }
+
+    /**
+     * A moved deadline, with the thing people actually argue about in it.
+     *
+     * Never "goal updated": a date that can move without saying so carries no
+     * weight, and in inter-company work the slipped date *is* the dispute.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function summariseReschedule(array $meta): string
+    {
+        $to = $meta['to'] ?? $meta['to_due_at'] ?? null;
+
+        $line = 'Date moved' . ($to === null ? ' — no date now' : ' to ' . substr((string) $to, 0, 10));
+
+        if (isset($meta['reason'])) {
+            $line .= ': ' . $meta['reason'];
+        }
+
+        if (isset($meta['requires_party'])) {
+            $line .= " — needs {$meta['requires_party']} to agree";
+        }
+
+        return $line;
+    }
+
+    /**
      * What changed about the mission statement, in the words a reader wants.
      *
      * The card says which fields moved and — for the name, which is how every
@@ -191,6 +258,17 @@ class HistoryController extends Controller
             'decision.approved'          => 'Decision approved against version ' . ($meta['subject_version'] ?? 'n/a'),
             'decision.rejected'          => 'Decision rejected',
             'commitment.created'         => "Commitment created: {$meta['title']}",
+            'goal.created'               => 'Goal created: ' . ($meta['title'] ?? 'untitled'),
+            'goal.updated'               => $this->summariseGoalUpdate($meta),
+            'goal.accepted'              => 'Work accepted as done',
+            'goal.abandoned'             => 'Goal abandoned',
+            'goal.rescheduled'           => $this->summariseReschedule($meta),
+            'goal.reschedule_agreed'     => 'The moved date was agreed'
+                . (isset($meta['party']) ? " by {$meta['party']}" : ''),
+            'goal.evidence_attached'     => 'Filed ' . ($meta['filename'] ?? 'a document')
+                . ' against ' . ($meta['goal_title'] ?? 'a goal'),
+            'goal.evidence_detached'     => 'Removed ' . ($meta['filename'] ?? 'a document')
+                . ' from ' . ($meta['goal_title'] ?? 'a goal'),
             'commitment.updated'         => "Commitment moved from {$meta['from']} to {$meta['to']}",
             'agent.run_started'          => 'Agent run started'
                 . (($meta['model'] ?? 'none') === 'none' ? ' (no model configured)' : " ({$meta['model']})"),

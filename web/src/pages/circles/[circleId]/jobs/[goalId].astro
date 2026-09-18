@@ -1,0 +1,10 @@
+---
+import Base from "../../../../layouts/Base.astro";
+import { JobView } from "../../../../components/JobView";
+
+export const prerender = false;
+const { circleId, goalId } = Astro.params;
+---
+<Base title="Job">
+  <JobView client:load circleId={circleId!} goalId={goalId!} />
+</Base>

@@ -23,6 +23,22 @@ interface AiProvider
     public function model(): string;
 
     /**
+     * The same provider, configured for one named task.
+     *
+     * Not every job in this system needs the same model. Reading a contract
+     * into a fixed schema whose every field is re-checked in PHP is a different
+     * job from finding the contradiction between two documents, and paying the
+     * same rate for both is a choice nobody made deliberately. Tasks are named
+     * in config/circle.php, and a name with no entry falls back to the default
+     * — an unknown task must not be a fatal error in a code path whose whole
+     * purpose is to produce a brief.
+     *
+     * Returns a configured copy; the provider itself is immutable, so a task
+     * cannot leak its model onto the next caller.
+     */
+    public function forTask(string $task): self;
+
+    /**
      * @param  array  $jsonSchema  A JSON Schema object the response must satisfy.
      * @throws \RuntimeException when the provider fails or returns unusable output.
      */

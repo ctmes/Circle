@@ -9,11 +9,13 @@ import {
   type AgentRun,
   type AgentToolRow,
   type Circle,
+  type Overview,
   type ToolCatalogueRow,
   type Party,
   type SideEffect,
 } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
+import { DerivedStamp } from "./Trust";
 import {
   Button,
   Empty,
@@ -52,6 +54,19 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
 
   const [building, setBuilding] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  /*
+    The Steward's brief used to sit on the "Now" screen. It is the output of an
+    agent run, so this is where it belongs — and it is the last thing that
+    screen held which was not already somewhere else.
+
+    Read off the overview rather than a brief-shaped endpoint because that is
+    where the API puts it; one extra request on a tab that already makes four.
+  */
+  const overview = useAsync<Overview>(
+    () => api.get<{ data: Overview }>(`/circles/${circleId}/overview`).then((r) => r.data),
+    [circleId],
+  );
 
   const queue = useAsync<{ data: AgentActionRow[]; recent: AgentActionRow[] }>(
     () =>
@@ -164,6 +179,13 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
             )}
           </Panel>
 
+          <StewardPanel
+            circleId={circleId}
+            brief={overview.data?.latest_brief ?? null}
+            canRun={canRun}
+            onRan={overview.reload}
+          />
+
           <Panel title="Recent agent activity" className="lay-in">
             {recent.length === 0 ? (
               <Empty>Nothing yet.</Empty>
@@ -234,8 +256,8 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
 
             {(connections.data ?? []).length === 0 ? (
               <Empty>
-                None. A party can bring its own agent — it runs on their
-                credentials, and Circle never holds the secret.
+                None yet. A party can bring its own agent — it runs on their
+                credentials, and Circle never sees them.
               </Empty>
             ) : (
               <ul>
@@ -254,8 +276,8 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
           <Panel title="How this works" className="lay-in">
             <div className="space-y-3 px-5 pb-5 text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
               <p>
-                An agent has a <strong className="text-[var(--ink)]">mode</strong>{" "}
-                that bounds everything it can do, whatever its tools say.
+                Every agent has a <strong className="text-[var(--ink)]">mode</strong>,
+                and it limits what the agent can do no matter what its tools say.
               </p>
               <ul className="space-y-1.5">
                 <li>
@@ -266,14 +288,14 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
                   requests for people to review.
                 </li>
                 <li>
-                  <ModeChip mode="execute" /> runs commands — each one recorded,
-                  and anything with a side effect held until a person with the
-                  right authority agrees.
+                  <ModeChip mode="execute" /> runs commands. Each one is recorded,
+                  and anything with a side effect waits for someone with the
+                  authority to approve it.
                 </li>
               </ul>
               <p className="border-t border-[var(--rule)] pt-3">
-                Dropping an agent to read-only stops everything it could do,
-                immediately, without editing its tools.
+                Switching an agent to read-only stops everything it can do,
+                straight away, without touching its tools.
               </p>
             </div>
           </Panel>
@@ -379,9 +401,9 @@ function ActionRow({
       */}
       {!action.runnable && (
         <p className="mt-2 rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--signal)]">
-          Nothing stands behind <span className="mono">{action.tool_key}</span> in
-          this build. Approving it records your agreement and then fails — it
-          will not do anything.
+          Nothing is wired up behind <span className="mono">{action.tool_key}</span>{" "}
+          in this build. Approving it records your agreement and then fails —
+          nothing will actually happen.
         </p>
       )}
 
@@ -469,7 +491,7 @@ function AgentRow({
             {blueprint.is_system && (
               <span
                 className="rounded-[var(--r-chip)] bg-[var(--derived-soft)] px-2 py-0.5 text-xs font-[560] text-[var(--derived)]"
-                title="Shipped with Circle. Its mandate is part of the product, not a setting."
+                title="Ships with Circle. Its mandate is part of the product, not a setting."
               >
                 Built in
               </span>
@@ -528,7 +550,7 @@ function AgentRow({
                   ? "Reads what it is allowed to and reports back. Writes nothing."
                   : blueprint.execution_mode === "propose"
                     ? "Reads, then drafts claims and decision requests for people to review."
-                    : "Reads, drafts, and proposes its tool calls for approval. Nothing runs unasked."
+                    : "Reads, drafts, and puts its tool calls up for approval. Nothing runs without a person agreeing."
               }
               onClick={() =>
                 act(async () => {
@@ -709,7 +731,7 @@ function ConnectionRow({
           <Button
             variant="primary"
             disabled={busy}
-            title="You are accepting this key, not this name. Check it against what the other party told you."
+            title="You are accepting this key, not this name. Check it against what the other party gave you."
             onClick={() => act("admit")}
           >
             Admit this key
@@ -755,7 +777,7 @@ function ToolLine({ tool }: { tool: AgentToolRow }) {
       {!tool.implemented && (
         <span
           className="rounded-[var(--r-chip)] bg-[var(--signal-soft)] px-2 py-0.5 text-xs font-[560] text-[var(--signal)]"
-          title="Nothing stands behind this key. The agent can propose it and a person can approve it, and then it will fail."
+          title="Nothing is wired up behind this key. The agent can propose it and a person can approve it, and it will then fail."
         >
           not built
         </span>
@@ -865,7 +887,7 @@ function AgentComposer({
             active={mode === "execute"}
             onClick={() => setMode("execute")}
             label="Execute"
-            detail="Runs commands. Side effects wait for a person."
+            detail="Runs commands. Anything with a side effect waits for a person."
           />
         </div>
       </Field>
@@ -998,10 +1020,9 @@ function ToolComposer({
 
       {!picked && key !== "" && (
         <p className="rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--signal)]">
-          Nothing stands behind this key yet. The agent will be able to propose
-          it and a person will be able to approve it, and it will then fail. Use
-          it to describe intent for a tool you are about to build, not for work
-          you need done today.
+          Nothing is wired up behind this key yet. The agent can propose it and a
+          person can approve it, and it will then fail. Use this to describe a
+          tool you are about to build, not work you need done today.
         </p>
       )}
 
@@ -1171,8 +1192,8 @@ function ConnectionComposer({
       </Field>
 
       <p className="rounded-[var(--r-control)] bg-[var(--paper-raised)] px-3 py-2 text-xs leading-relaxed text-[var(--ink-muted)]">
-        Circle never stores the credential itself — only a reference to it. The
-        agent arrives pending, and admitting it is a decision the other parties
+        Circle never stores the credential itself, only a reference to it. The
+        agent arrives pending, and letting it in is a decision the other parties
         can see.
       </p>
 
@@ -1212,6 +1233,129 @@ function ConnectionComposer({
 }
 
 // ------------------------------------------------------------------- bits
+
+/**
+ * The Steward's latest brief.
+ *
+ * Rendered in the derived treatment — indigo accent, explicit stamp — because
+ * it is a machine reading of the evidence, not a finding. A claim is not true
+ * merely because an agent stated it (spec §9), and the screen has to say so
+ * before the sentence is read rather than after.
+ */
+function StewardPanel({
+  circleId,
+  brief,
+  canRun,
+  onRan,
+}: {
+  circleId: string;
+  brief: Overview["latest_brief"] | null;
+  canRun: boolean;
+  onRan: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [runError, setRunError] = useState<unknown>(null);
+
+  async function run() {
+    setBusy(true);
+    setRunError(null);
+    try {
+      await api.post(`/circles/${circleId}/agent-runs/steward-brief`);
+      onRan();
+    } catch (e) {
+      // A refused or failed run is worth showing in place: the reason is the
+      // policy gate's or the provider's, and it is actionable.
+      setRunError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const content = brief?.content ?? null;
+
+  return (
+    <Panel
+      title="Circle Steward"
+      tone="derived"
+      className="lay-in"
+      meta={
+        canRun && (
+          <Button variant="quiet" onClick={run} disabled={busy}>
+            {busy ? "Running…" : "Run brief"}
+          </Button>
+        )
+      }
+    >
+      {!!runError && (
+        <div className="px-5 pb-4">
+          <ErrorNote error={runError} />
+        </div>
+      )}
+
+      {!brief ? (
+        <Empty>The Steward has not produced a brief yet.</Empty>
+      ) : (
+        <div className="space-y-4 px-5 pb-5">
+          <DerivedStamp />
+
+          {content?.summary && (
+            <p className="text-[0.9375rem] leading-relaxed">{content.summary}</p>
+          )}
+
+          {content?.status && (
+            <p className="text-[0.8125rem] text-[var(--ink-muted)]">
+              Assessed as{" "}
+              <span className="font-[590] capitalize text-[var(--derived)]">
+                {String(content.status).replace(/_/g, " ")}
+              </span>
+            </p>
+          )}
+
+          {content?.uncertainty && (
+            <div className="rounded-[var(--r-control)] bg-[var(--paper-inset)] px-3.5 py-3">
+              <p className="label">What it could not determine</p>
+              <p className="mt-1 text-sm leading-relaxed text-[var(--ink-muted)]">
+                {content.uncertainty}
+              </p>
+            </div>
+          )}
+
+          {Array.isArray(content?.missing_evidence) && content.missing_evidence.length > 0 && (
+            <div>
+              <p className="label">Evidence it says is missing</p>
+              <ul className="mt-1.5 space-y-1.5">
+                {content.missing_evidence.map((m: any, i: number) => (
+                  <li
+                    key={i}
+                    className="flex gap-2 text-sm leading-snug text-[var(--ink-muted)]"
+                  >
+                    <span className="text-[var(--derived)]" aria-hidden="true">•</span>
+                    {m.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="border-t border-[var(--rule)] pt-3 text-xs text-[var(--ink-faint)]">
+            {brief.model ?? "unknown model"} · {formatDate(brief.created_at, true)}
+            {brief.agent_run_id && (
+              <>
+                {" · "}
+                <a
+                  href={`/circles/${circleId}/history`}
+                  className="text-[var(--accent)] no-underline hover:underline"
+                >
+                  what it read
+                </a>
+              </>
+            )}
+          </p>
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 /**
  * Side effect, coloured by consequence.

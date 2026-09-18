@@ -86,7 +86,7 @@ export function RecoverView({
           <div className="inline-flex flex-col items-center gap-3">
             <Wordmark size={22} />
             <p className="text-[0.9375rem] leading-relaxed text-[var(--ink-muted)]">
-              {redeeming ? "Choose a new password." : "We will send you a link."}
+              {redeeming ? "Choose a new password." : "We'll send you a link."}
             </p>
           </div>
         </div>
@@ -105,8 +105,8 @@ export function RecoverView({
                   If that address has an account, a reset link is on its way.
                 </p>
                 <p className="text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
-                  The link works once and expires. If it does not arrive, check
-                  the address and try again.
+                  The link works once and then expires. If it doesn't arrive,
+                  check the address and try again.
                 </p>
               </>
             ) : (

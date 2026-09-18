@@ -13,7 +13,18 @@ return [
     */
     'agent' => [
         'provider'      => env('AGENT_PROVIDER', 'anthropic'),
-        'model'         => env('AGENT_MODEL', 'claude-opus-5'),
+
+        /*
+        | The default model, and the floor for any task without its own entry.
+        |
+        | This was claude-opus-5. Opus is the right default for open-ended
+        | reasoning and the wrong one for everything this application actually
+        | asks a model to do: summarise retrieved text, and read a document into
+        | a schema whose every field is re-checked in PHP afterwards. Sonnet 5
+        | is $2/$10 per million tokens against Opus 5's $5/$25 — a 60% cut on
+        | both sides of the meter for work that was never reasoning-bound.
+        */
+        'model'         => env('AGENT_MODEL', 'claude-sonnet-5'),
         // Read here rather than via env() at call time so `config:cache` works.
         'api_key'       => env('ANTHROPIC_API_KEY'),
 
@@ -47,6 +58,58 @@ return [
         'max_chars_per_source' => (int) env('AGENT_MAX_CHARS_PER_SOURCE', 12000),
         'max_sources'          => (int) env('AGENT_MAX_SOURCES', 40),
         'timeout_seconds'      => (int) env('AGENT_TIMEOUT_SECONDS', 180),
+
+        /*
+        |-----------------------------------------------------------------------
+        | Per task
+        |-----------------------------------------------------------------------
+        | One model for everything was costing Opus rates for jobs that are not
+        | Opus-shaped. These three are different jobs and they are priced as
+        | such. Anything absent from a task falls back to the settings above,
+        | and an unknown task name falls back entirely rather than failing —
+        | a typo must not take down a run.
+        |
+        | `convening` — read one document into ConveningSchema (spec 23).
+        |   The narrowest job here: extraction into a fixed shape, where the
+        |   dates, the tree, the party matching and every citation are recomputed
+        |   and validated by PlanResolver afterwards. Nothing the model gets
+        |   wrong about arithmetic or structure survives. Low effort because
+        |   this is reading rather than reasoning — the document has already
+        |   been retrieved, filtered and laid out for it.
+        |
+        |   The one thing here a cheaper model degrades on is `basis`: deciding
+        |   whether the document *stated* something or the model inferred it is
+        |   a genuine judgement, and it is the trust mechanism the whole review
+        |   screen rests on. That is the reason this is not on Haiku 4.5
+        |   ($1/$5) by default. If you are convening at volume and can live with
+        |   more lines marked wrongly, that is the one env var to change — and
+        |   check the stated/inferred split on a contract you know well before
+        |   you keep it.
+        |
+        | `brief` — the Circle Steward's summary (spec 9).
+        |   The judgement-heavy one: what the evidence shows, where it
+        |   contradicts itself, what is missing. Reasoning over several
+        |   documents at once, so it keeps medium effort. Raise to claude-opus-5
+        |   where the Circles are large and the contradictions subtle.
+        |
+        | `authored` — agents customers write in the studio (spec 20.4).
+        |   Mandates we did not write and cannot predict, so this is the one
+        |   that most deserves headroom if any of the three does.
+        */
+        'tasks' => [
+            'convening' => [
+                'model'  => env('AGENT_MODEL_CONVENING', 'claude-sonnet-5'),
+                'effort' => env('AGENT_EFFORT_CONVENING', 'low'),
+            ],
+            'brief' => [
+                'model'  => env('AGENT_MODEL_BRIEF', 'claude-sonnet-5'),
+                'effort' => env('AGENT_EFFORT_BRIEF', 'medium'),
+            ],
+            'authored' => [
+                'model'  => env('AGENT_MODEL_AUTHORED', 'claude-sonnet-5'),
+                'effort' => env('AGENT_EFFORT_AUTHORED', 'medium'),
+            ],
+        ],
     ],
 
     /*

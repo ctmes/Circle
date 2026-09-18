@@ -6,6 +6,7 @@ use App\Enums\GoalStatus;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -84,6 +85,26 @@ class Goal extends Model
     public function claims(): HasMany
     {
         return $this->hasMany(Claim::class);
+    }
+
+    /**
+     * The files filed against this piece of work.
+     *
+     * Distinct from the evidence a claim on this goal cites. A citation says
+     * "this sentence rests on that document"; this says "this document belongs
+     * with this job", which is the ordinary filing everybody does and which
+     * previously had nowhere to go but the Circle-wide vault.
+     *
+     * Visibility still belongs to the item, never to the link: a party-scoped
+     * document attached to a goal stays invisible to the parties it was scoped
+     * away from, so every read of this relation is filtered the same way the
+     * register is.
+     */
+    public function evidence(): BelongsToMany
+    {
+        return $this->belongsToMany(EvidenceItem::class, 'evidence_item_goal')
+            ->withPivot(['id', 'attached_by_user_id', 'attached_at'])
+            ->orderByPivot('attached_at', 'desc');
     }
 
     public function scheduleChanges(): HasMany

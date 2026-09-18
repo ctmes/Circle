@@ -1196,3 +1196,100 @@ The move is audited as `comment.thread_attached`, and the packet carries `attach
 No Circle-wide channel in the chat sense: no presence, no typing indicators, no unread counts beyond the existing mention inbox, no direct messages between two people. A thread is still a thread — it is opened, replied to, resolved, and it sits in a list.
 
 No automatic filing. Nothing guesses which goal a conversation is about. A suggestion that is wrong half the time would be worse than the control, because the control is one click and a wrong guess is a conversation filed somewhere nobody looks.
+
+
+23. Amendment — Convening from an engagement of terms
+
+Every section up to here assumes the plan arrives by hand. Somebody opens a Circle, names it, states its purpose, adds the parties, and builds the goal tree a node at a time. That is the correct model of where a plan comes from — a person decides it — and it is also, in the cases this product is aimed at, a transcription exercise. The plan already exists. It is in the contract, the scope of works, the letter of appointment or the statement of work the parties have just signed, together with the dates, the deliverables and the acceptance tests.
+
+Retyping it is not merely tedious. It is where the copy first diverges from the document everyone is actually bound by, and the divergence is invisible afterwards because the Circle does not hold the reasoning that produced it.
+
+23.1 One gesture, two acts, and the separation is structural
+
+Dropping a document produces a working Circle. Not a form, not a queue, not a draft awaiting approval: the mission statement, the parties, the goal tree, the dated deliverables and the questions the document leaves open are all in place by the time the person lands in it.
+
+Underneath, that is still two acts by two actors, and they stay apart.
+
+`ConveningService::propose()` is the agent's act. The Convener reads documents already in the vault and writes one `derived_artifact` of type `convened_plan`. It changes nothing else.
+
+`ConveningService::accept()` is the person's act, and `convene()` runs the two back to back. Everything written is written by the person who convened: goals through `GoalService` with them as creator, the mission statement through `CircleService::updateDetails()` with a before and after on the chain, parties, commitments and decisions as though entered by hand. Nothing in the record says an agent planned this mission, because an agent did not — an agent read a document a person chose, and that person's name is on the result.
+
+The artifact keeps the model's raw output, the plan resolved from it, and what was written, so "what did it say, and what did we do with it" stays answerable.
+
+The Circle is created first, by the ordinary route, and named after the file for the few seconds before its mission statement arrives. The alternative is a staging area where a contract sits outside the gate and outside the chain while somebody decides what to do with it, and a document in that position is the one thing this product has no vocabulary for.
+
+23.2 The Circle Convener holds `read_only`
+
+A second agent ships with the product, and its mandate is the narrowest the enum has: `execution_mode: read_only`, whose ceiling in `AgentExecutionMode` is `circle.view` and `resource.agent_read` and nothing else.
+
+It needs nothing more, because it never writes the plan. That is the point rather than a happy accident: the most consequential object in a Circle is the one that says who owes what to whom and by when, and an agent that could write it directly would be putting a model's reading of a contract into the record with nobody's name against it. Convening writes immediately, but it writes as somebody.
+
+Retrieval is unchanged and shared. `AgentRetrieval::gather()` takes an optional list of evidence items, which narrows the candidate set and nothing else — every item is still put through `AccessGate` individually, and a document not marked `agent_read` is still refused.
+
+23.3 The model reads; the application calculates
+
+`ConveningSchema` is held to the same bar as `OutputSchema`: a property earns its place only if a language model is the only thing that can answer it. Four things are decided in PHP because of it.
+
+**No date is computed by the model.** A schedule is either a date the document states outright, or a quantity and a unit measured from commencement — `{value: 20, unit: business_days}`. "Within twenty business days of commencement" is a reading; turning it into the 29th of March is a calendar question, and `PlanResolver` answers it identically on every re-run.
+
+**No structure is computed by the model.** `level` says how deeply a step nests and nothing else. The tree is assembled from the order of the array, the depth cap is enforced there, and a level that jumps is attached to the deepest open parent and reported.
+
+**No party resolution.** `responsible_party` is a name as the document writes it. Matching "the Supplier" to the party it defined is a string comparison, and a near-miss is left unmatched rather than guessed: work assigned to the wrong company is worse than work assigned to nobody.
+
+**No judgement about which steps are deliverables.** A step becomes a commitment if nothing hangs beneath it and it has a date. Both halves are structural, so both are answered structurally.
+
+The consequence worth stating: re-reading a proposal against a different start date is a re-resolution of stored output, not a second run. `GET /circles/{circle}/convening?anchor=…` calls no model and returns the same plan with its periods measured from somewhere else.
+
+What the schema may say is narrower than JSON Schema, and the limits shaped it. Structured outputs takes a subset — no numeric or length bounds, no array cardinality, `additionalProperties` only ever false — and compiles a grammar that refuses more than 24 optional parameters, counted at every nesting level and at every place a shape is inlined. This schema inlines a schedule four times and a citation twice and ran to 34.
+
+Three changes brought it to 23, and each is an improvement rather than a concession: `basis` became required on the mission, on every party and on every step, because a line nobody marked stated or inferred is the one line a reviewer cannot act on; `excerpt` became required on a citation, because a page number alone is weaker than a quotation somebody can search for; and the mission lost its citation, being a synthesis of a whole document rather than a quotation from a clause.
+
+The unsupported keywords are stripped in the provider by `StructuredSchema` rather than removed from the builders, because they are a fact about one vendor and not about what the application wants to ask for — and because every bound they express is enforced in PHP after the run regardless. The optional-parameter budget cannot be stripped, so a test holds both schemas under it.
+
+23.4 What a document fills in
+
+**The mission statement.** Name, purpose and the term dates, through the audited path.
+
+**The parties**, as the document names them, with the commercial position each holds. A company the Circle already knows by the same name is reused rather than added twice. Naming a party grants nobody access; people are still invited separately.
+
+**The goal tree**, with acceptance conditions where the document states a test, and the clause each node came from appended to its description — because that is what somebody types into the search box of the PDF when they want to check the plan against what they signed.
+
+**A dated commitment for every deliverable**, hung off the goal it came from rather than floating beside it, owed by a party rather than by a person nobody has named. It enters `open`, not `draft`: draft is where an agent's suggestions wait for a human, and this is a deliverable a person has just written in from a contract.
+
+**A draft decision for every open question.** §22.4 refused automatic filing on the grounds that a question filed automatically is a question nobody owns. A draft decision is precisely this product's word for that state — it has no approver, so nothing is waiting on anybody, and the only way it becomes live is for a person to name who decides it. The list is a queue of "somebody must own this" rather than work pretending to be assigned.
+
+**The document, filed against every goal it produced**, so opening a piece of work shows the contract behind it.
+
+**A Steward brief**, queued after the plan is committed. Queued rather than inline because convening has already spent one model call and a second before the Circle appears would be a minute of spinner; after the commit because a Steward that is over quota must not be able to roll back a contract somebody just read in.
+
+23.5 Two refusals that are not obvious
+
+**A concluded contract does not expire the Circle.** The Circle's expiry is an authorisation decision — the gate refuses every write past it on the very next request (§21.2) — while the document's end date is a fact about the document. Convening a past engagement to build its record is legitimate, and handing somebody a fully populated Circle they cannot write to is a confusing way to tell them the contract has ended. The date is on the acceptance event either way.
+
+**A Circle that already has a plan is not written into again.** Reading the same contract twice is legitimate — it is how a variation arrives, and how somebody re-reads a document whose extraction has since improved — but writing the second reading on top of the first would silently double every goal. The proposal is still produced and still readable; applying it is then a deliberate act.
+
+The same shape covers a reader who may run an agent but may not restate the mission: the reading happens, nothing is written, and the response names the permission that stopped it. Losing a model call because the last of three permissions was missing would be a poor trade for a check that could have been reported.
+
+23.6 Everything repaired is said out loud
+
+`PlanResolver` reports every repair in `notes`, in words: a citation dropped for naming page 9 of a seven-page document, a party that could not be matched, a level that had to be moved, a company listed twice and merged. A resolver that silently tidied its input would be handing somebody a clean plan with no way to tell which parts of it the software had invented.
+
+Every element carries `basis`: `stated` if the document says it, `inferred` if the agent concluded it. This is not confidence and deliberately not a float — a reviewer with twenty rows in front of them cannot calibrate 0.72, and does not need to. Inferred is not a defect; a contract that names a deliverable and no milestone still implies work. It is a different kind of line.
+
+Because the plan is written immediately, the reading it came from is kept as a receipt rather than a gate, and that receipt is worth more than the gate was. The goals are now editable in the ordinary places, which is where somebody will actually change them; what they cannot get anywhere else is which lines the contract stated and which the machine worked out. A computed date carries the period it was computed from on the face of its row, because a plausible-looking wrong date is the single most likely thing to survive a review — and it is now a date somebody may already be working to.
+
+The reading itself cannot be edited. A record of what a document said that somebody had adjusted afterwards is the one thing a derived artifact must never be.
+
+23.7 What this does not build
+
+**No Circle is created without a person.** There is no endpoint that takes a document and returns a Circle. Convening happens inside one, and every write is somebody's.
+
+**Nothing is inferred about money.** Fee bases, rates, caps and liquidated damages are in every engagement of terms and none of them are read into anything. §21 holds: `financial` is a side-effect classification with nothing registered under it, and a schema that extracted a rate would be the first half of a settlement system.
+
+**No engagement is proposed.** An engagement bounds the gate, and a contract term read out of a PDF is not a basis on which to start refusing somebody's writes. The term dates land on the Circle, where they are visible and editable, and the engagement stays a thing two parties agree to explicitly.
+
+**No claims are made.** The Convener reports what a document says as a plan, not as assertions about the world. Claims about evidence are the Steward's job, and the brief queued after convening is where they come from — cited, at `derived`, and reviewable as any other agent output.
+
+**No second document reconciles against the first.** Uploading a variation and asking what changed is the obvious next thing and is not built: a second reading produces a second proposal, which a person applies or does not.
+
+**Nothing is notified.** Convening writes a plan, deliverables and draft decisions, and tells nobody. §22's transport carries things that happened to *you*, and a Circle appearing fully formed is not yet one of them.

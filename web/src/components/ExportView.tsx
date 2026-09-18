@@ -105,16 +105,16 @@ function Body({
 
           <p className="text-sm leading-snug text-[var(--ink-muted)]">
             The original files travel with it, under evidence/, up to a size
-            limit — each carrying both the digest of the bytes as shipped and the
-            digest this Circle recorded at upload, so a reader can prove they
-            match. Anything too large to fit is named in the manifest with the
-            reason, and its digest is still there to identify it by.
+            limit. Each one carries two digests — the bytes as shipped, and the
+            digest this Circle recorded at upload — so a reader can check they
+            match. Anything too large is listed in the manifest with the reason,
+            along with its digest.
           </p>
 
           <p className="text-sm leading-snug text-[var(--ink-muted)]">
-            Conversation is included per comment: one that carried a state change
-            is always in the packet, plain discussion only if its author marked
-            it for the record. What is withheld is counted, never silently
+            Conversation is included comment by comment. Anything that carried a
+            state change is always in; plain discussion only if its author marked
+            it for the record. Whatever is left out gets counted, not silently
             dropped.
           </p>
 
@@ -126,7 +126,7 @@ function Body({
             </Button>
           ) : (
             <p className="text-xs text-[var(--ink-muted)]">
-              Your role does not permit exporting this Circle.
+              Your role doesn't let you export this Circle.
             </p>
           )}
         </div>
@@ -208,14 +208,14 @@ function Body({
         <Panel title="Close this Circle" tone="signal">
           <div className="space-y-4 px-5 pb-5">
             <p className="text-sm leading-snug">
-              Closing ends the mission. It takes effect immediately and cannot be
-              undone from here.
+              Closing ends the Circle. It takes effect immediately and can't be
+              undone here.
             </p>
 
             <ul className="space-y-1.5 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-4 py-3 text-sm leading-relaxed text-[var(--ink-muted)]">
               {[
                 "External collaborators lose access to this Circle entirely.",
-                "The Circle Steward is disabled and can no longer read anything.",
+                "The Circle Steward is switched off and can no longer read anything.",
                 "No further evidence, claims, decisions or commitments can be added.",
                 "Internal members keep a read-only record, and can still export it.",
               ].map((line) => (
@@ -239,7 +239,7 @@ function Body({
                   Keep it open
                 </Button>
                 <span className="text-xs text-[var(--ink-muted)]">
-                  Consider building the packet first.
+                  It's worth building the packet first.
                 </span>
               </div>
             )}

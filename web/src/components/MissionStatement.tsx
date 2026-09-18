@@ -133,7 +133,7 @@ function MissionForm({
       <div className="mt-3">
         <Field
           label="Purpose"
-          hint="What this Circle exists to do. Everything the parties decide here is read against it."
+          hint="What this Circle is for. Everything decided here gets read against it."
         >
           <textarea
             value={purpose}
@@ -171,7 +171,7 @@ function MissionForm({
           }`}
         >
           {error ??
-            "Recorded in this Circle's history, with the previous wording and who changed it."}
+            "Recorded in this Circle's history, along with the old wording and who changed it."}
         </p>
       </div>
     </form>

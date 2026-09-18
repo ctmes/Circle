@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 
 WEB_URL=http://localhost:4321
 API_URL=http://localhost:8000/api
-MINIO_URL=http://localhost:59001
+MINIO_URL=http://localhost:19001
 DEMO_USER=gm@jwamats.test
 DEMO_PASS=correct-horse-battery
 

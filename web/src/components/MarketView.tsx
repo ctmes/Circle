@@ -43,8 +43,8 @@ export function MarketView({ initialTab = "board" }: { initialTab?: TabKey }) {
       <header className="space-y-1">
         <h1 className="text-xl font-semibold tracking-tight text-[var(--ink)]">Work</h1>
         <p className="max-w-2xl text-sm text-[var(--ink-soft)]">
-          Openings other companies have posted, the contracts you hold, and the record
-          those contracts leave behind. Nothing here belongs to one Circle.
+          Work other companies have posted, the contracts you hold, and the record they
+          leave behind. None of this belongs to a single Circle.
         </p>
       </header>
 
@@ -108,7 +108,7 @@ function Board() {
         */
         <Empty>
           {network === 0
-            ? "Openings default to the companies you have completed work with, and you have not been engaged with anyone yet. Work you are invited to directly will still reach you."
+            ? "Openings go to companies you have completed work with, and you haven't worked with anyone yet. Work you're invited to directly will still reach you."
             : "Nobody in your network is hiring right now."}
         </Empty>
       ) : (
@@ -230,7 +230,7 @@ function ApplyForm({ opening, onDone }: { opening: WorkOpening; onDone: () => vo
         </select>
       </Field>
 
-      <Field label="What you would do" hint="The client reads this before anything else.">
+      <Field label="What you'd do" hint="The client reads this before anything else.">
         <textarea
           className={inputClass}
           rows={3}
@@ -257,8 +257,8 @@ function ApplyForm({ opening, onDone }: { opening: WorkOpening; onDone: () => vo
         not being let in — that is a separate decision by the company posting.
       */}
       <p className="text-xs text-[var(--ink-faint)]">
-        Applying gives you no access to their project. If they shortlist you, you are
-        admitted to the work you applied for and nothing else.
+        Applying doesn't give you access to their project. If they shortlist you, you
+        get access to the work you applied for and nothing else.
       </p>
 
       <div className="flex gap-2">
@@ -289,7 +289,7 @@ function Applications() {
   return (
     <Panel title="Bids you have made">
       {all.length === 0 ? (
-        <Empty>You have not offered to do anything yet.</Empty>
+        <Empty>You haven't bid on anything yet.</Empty>
       ) : (
         all.map((a) => (
           <div key={a.id} className="border-b border-[var(--rule)] py-3 last:border-b-0">
@@ -310,8 +310,8 @@ function Applications() {
             */}
             {a.status === "shortlisted" && a.branch_status === "draft" && (
               <p className="mt-2 text-xs text-[var(--ink-soft)]">
-                You are in. Your assignment is drafted as a branch of their plan — open it,
-                adjust the dates if you need to, and propose it. They cannot award the work
+                You're in. Your assignment is drafted as a branch of their plan — open it,
+                adjust the dates if you need to, then propose it. They can't award the work
                 until you do.
               </p>
             )}
@@ -449,8 +449,8 @@ function Record() {
       >
         {records.length === 0 ? (
           <Empty>
-            Nothing yet. A record is written when an engagement ends, and signed by the
-            company that was paying for it.
+            Nothing yet. A record gets written when an engagement ends, and signed by
+            the company that was paying.
           </Empty>
         ) : (
           <>
@@ -492,7 +492,7 @@ function Record() {
                 <p className="mt-2 text-xs text-[var(--ink-soft)]">
                   {r.attested
                     ? `Signed by ${r.attested_by}${r.attestation_note ? ` — “${r.attestation_note}”` : ""}`
-                    : "Not signed yet. Until the client signs it, this is only our arithmetic."}
+                    : "Not signed yet. Until the client signs it, this is just our own arithmetic."}
                 </p>
 
                 {r.attested && <PublishControl record={r} />}
@@ -564,7 +564,7 @@ function AgentRegistry() {
   return (
     <Panel title="Agents for hire">
       {agents.length === 0 ? (
-        <Empty>No agent has been published to you.</Empty>
+        <Empty>No agents have been published to you.</Empty>
       ) : (
         agents.map((a) => (
           <article key={a.id} className="border-b border-[var(--rule)] py-4 last:border-b-0">

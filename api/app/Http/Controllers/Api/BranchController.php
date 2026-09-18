@@ -34,13 +34,29 @@ class BranchController extends Controller
         $this->gate->authorise($request->user(), Permission::CircleView, $circle);
 
         $branches = GoalBranch::where('circle_id', $circle->id)
-            ->with(['author', 'party.organisation', 'changes.goal', 'mergedBy'])
+            ->with(['author', 'party.organisation', 'changes.goal', 'changes.author', 'mergedBy'])
+            // `?goal=` narrows to the branches that would touch one node, for
+            // the job screen: somebody reading a package needs to know a
+            // revision of it is in flight, and has no way to find that out
+            // from a list of branch names.
+            ->when($request->query('goal'), fn ($q, $v) => $q->whereHas(
+                'changes',
+                fn ($c) => $c->where('goal_id', $v)->orWhere('parent_goal_id', $v),
+            ))
             ->orderByRaw("case status when 'open' then 0 when 'draft' then 1 else 2 end")
             ->orderByDesc('created_at')
             ->get();
 
+        // Asked about one node, answer about that node: the whole change list
+        // of a forty-change branch is not what a job screen is for, and making
+        // the reader find the one row that concerns them is how a diff gets
+        // approved unread.
+        $goalId = $request->query('goal');
+
         return response()->json([
-            'data' => $branches->map(fn (GoalBranch $b) => $this->present($b))->all(),
+            'data' => $branches->map(fn (GoalBranch $b) => $goalId === null
+                ? $this->present($b)
+                : $this->present($b, withChanges: true, onlyGoal: $goalId))->all(),
         ]);
     }
 
@@ -191,7 +207,7 @@ class BranchController extends Controller
 
     // ------------------------------------------------------------ presenters
 
-    private function present(GoalBranch $branch, bool $withChanges = false): array
+    private function present(GoalBranch $branch, bool $withChanges = false, ?string $onlyGoal = null): array
     {
         $affected    = $this->branches->affectedParties($branch);
         $outstanding = $this->branches->outstandingParties($branch, $affected);
@@ -234,7 +250,13 @@ class BranchController extends Controller
 
         if ($withChanges) {
             $payload['changes'] = $branch->changes
+                ->when(
+                    $onlyGoal !== null,
+                    fn ($changes) => $changes->filter(fn (GoalChange $c) => $c->goal_id === $onlyGoal
+                        || $c->parent_goal_id === $onlyGoal),
+                )
                 ->map(fn (GoalChange $c) => $this->presentChange($c, $conflicts))
+                ->values()
                 ->all();
         }
 
