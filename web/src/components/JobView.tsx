@@ -347,7 +347,12 @@ function Header({
         </p>
       )}
 
-      {form === "edit" && (
+      {/*
+        Gated on `editable` as well as on being open: a form left open when the
+        work is accepted would otherwise stay on screen holding the status from
+        before, and saving it would quietly reopen what was just signed off.
+      */}
+      {form === "edit" && editable && (
         <GoalEditForm
           goal={goal}
           parties={parties}
@@ -357,7 +362,7 @@ function Header({
         />
       )}
 
-      {form === "date" && (
+      {form === "date" && editable && (
         <RescheduleForm
           goal={goal}
           parties={parties}

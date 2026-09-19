@@ -129,6 +129,28 @@ class WorkflowApiTest extends TestCase
             ->assertJsonPath('data.accepted_by', 'Dana');
     }
 
+    public function test_accepted_work_cannot_be_reopened_by_an_edit(): void
+    {
+        $owner  = $this->makeUser('Dana', 'dana@jwamats.test');
+        $circle = $this->makeCircle($this->makeOrganisation(), $owner);
+
+        Sanctum::actingAs($owner);
+
+        $goal = $this->postJson("/api/circles/{$circle->id}/goals", ['title' => 'Sample data received'])
+            ->json('data.id');
+
+        $this->postJson("/api/goals/{$goal}/accept")->assertOk();
+
+        // What a form opened before the acceptance sends when it is saved after.
+        $this->patchJson("/api/goals/{$goal}", ['status' => 'active', 'owner_user_id' => $owner->id])
+            ->assertStatus(422);
+
+        $this->getJson("/api/goals/{$goal}")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'met')
+            ->assertJsonPath('data.owner', null);
+    }
+
     public function test_the_owner_of_the_work_cannot_accept_their_own_work(): void
     {
         $circle = $this->makeCircle($this->makeOrganisation(), $owner = $this->makeUser('Dana', 'dana@jwamats.test'));

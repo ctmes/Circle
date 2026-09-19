@@ -437,7 +437,8 @@ function GoalDetail({
         </p>
       )}
 
-      {editing && (
+      {/* Closed by acceptance too, for the reason given on the job page. */}
+      {editing && canUpdate && !goal.accepted_at && (
         <GoalEditForm
           goal={goal}
           parties={parties}
@@ -450,7 +451,7 @@ function GoalDetail({
         />
       )}
 
-      {rescheduling && (
+      {rescheduling && canUpdate && !goal.accepted_at && (
         <RescheduleForm
           goal={goal}
           parties={parties}

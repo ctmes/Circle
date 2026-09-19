@@ -157,6 +157,17 @@ class GoalController extends Controller
             'A goal is met by accepting it, so that the record shows who accepted it.',
         );
 
+        // And accepted work stays as it was signed off. Reopening it, renaming
+        // it or handing it to someone else afterwards would rewrite a statement
+        // that carries the acceptor's name — and a form left open across the
+        // acceptance would do exactly that, with nobody meaning to. Where it
+        // sits in the plan is not part of that statement.
+        abort_if(
+            $goal->isAccepted() && array_diff(array_keys($data), ['position']) !== [],
+            422,
+            'This work has been accepted, so it can no longer be edited.',
+        );
+
         $goal = $this->goals->update($goal, $request->user(), $data);
 
         return response()->json(['data' => $this->present($goal->load('owner', 'responsibleParty.organisation'))]);
