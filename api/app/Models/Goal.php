@@ -27,6 +27,7 @@ class Goal extends Model
         'accepted_by_user_id', 'accepted_at', 'accepted_via_decision_id',
         'starts_at', 'due_at', 'progress', 'progress_set_by_user_id',
         'progress_set_at', 'position', 'created_by_type', 'created_by_id',
+        'completed_by_agent_run_id',
     ];
 
     protected function casts(): array

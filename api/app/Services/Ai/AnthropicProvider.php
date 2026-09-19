@@ -78,7 +78,11 @@ class AnthropicProvider implements AiProvider
             model: $settings['model'] ?? $this->model,
             maxTokens: $settings['max_tokens'] ?? $this->maxTokens,
             timeoutSeconds: $this->timeoutSeconds,
-            effort: $settings['effort'] ?? $this->effort,
+            // array_key_exists rather than ??, because null is a real answer
+            // here and not a gap to fill: Haiku 4.5 refuses the effort
+            // parameter outright, so a task routed to it has to be able to say
+            // "send none" without inheriting the default.
+            effort: array_key_exists('effort', $settings) ? $settings['effort'] : $this->effort,
             transporter: $this->transporter,
         );
     }

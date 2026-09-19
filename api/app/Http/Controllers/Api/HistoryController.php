@@ -236,6 +236,10 @@ class HistoryController extends Controller
                 'Circle closed; %d external membership(s) revoked',
                 $meta['external_memberships_revoked'] ?? 0,
             ),
+            'circle.deleted'             => ($meta['closed_by_deletion'] ?? false)
+                ? 'Circle closed and deleted'
+                : 'Circle deleted',
+            'circle.restored'            => 'Circle restored',
             'circle.details_changed'     => $this->summariseDetailsChange($meta),
             'resource.uploaded'          => "Uploaded {$meta['filename']}",
             'resource.version_created'   => "New version {$event->resource_version} of {$meta['filename']}",

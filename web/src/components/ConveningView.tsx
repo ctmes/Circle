@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  CONVENE_MAX_FILES,
   acceptPlan,
   buildSteps,
   flattenPlan,
@@ -213,7 +214,7 @@ function Review({ circleId, circle }: { circleId: string; circle: Circle | null 
   return (
     <div className="space-y-4">
       <Panel
-        title="Read from the document"
+        title={proposal.sources.length > 1 ? "Read from the documents" : "Read from the document"}
         tone="derived"
         className="lay-in"
         meta={<Meta>{plan.counts.steps} steps · {plan.counts.parties} parties</Meta>}
@@ -432,7 +433,15 @@ function Review({ circleId, circle }: { circleId: string; circle: Circle | null 
       </Panel>
 
       {plan.open_questions.length > 0 && (
-        <Panel title="What the document leaves open" tone="derived" className="lay-in">
+        <Panel
+          title={
+            proposal.sources.length > 1
+              ? "What the documents leave open"
+              : "What the document leaves open"
+          }
+          tone="derived"
+          className="lay-in"
+        >
           <ul className="space-y-3 px-5 pb-5">
             {plan.open_questions.map((q, i) => (
               <li key={i}>
@@ -517,6 +526,10 @@ function Notes({ notes, rejected }: { notes: string[]; rejected: number }) {
  * than quietly hiding the rest. The flag is the whole of the agent's permission
  * to read an item (spec §10), and a screen that silently omitted a file would
  * leave somebody hunting for why their contract is not listed.
+ *
+ * Several can be ticked and read together, for a contract whose schedules are
+ * separate files — and for finishing a drop on the Circles page that stored
+ * some of its documents and not others.
  */
 function ConveneHere({
   circleId,
@@ -529,29 +542,33 @@ function ConveneHere({
     () => api.get<{ data: EvidenceItem[] }>(`/circles/${circleId}/evidence`).then((r) => r.data),
     [circleId],
   );
-  const [busy, setBusy] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const readable = (evidence ?? []).filter(
     (e) => e.agent_read && e.current_version?.extracted_text_status === "ready",
   );
   const unreadable = (evidence ?? []).filter((e) => !e.agent_read);
+  const full = chosen.length >= CONVENE_MAX_FILES;
 
-  async function read(item: EvidenceItem) {
-    setBusy(item.id);
+  async function read() {
+    if (chosen.length === 0) return;
+
+    setBusy(true);
     setError(null);
 
     try {
       const result = (
         await api.post<{ data: ConvenedProposal }>(`/circles/${circleId}/convening`, {
-          evidence_item_ids: [item.id],
+          evidence_item_ids: chosen,
         })
       ).data;
 
       onRead(result);
     } catch (e) {
       setError(e);
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -559,9 +576,10 @@ function ConveneHere({
     <Panel title="Convene from a document" className="lay-in">
       <div className="space-y-4 px-5 pb-5">
         <p className="text-sm leading-relaxed text-[var(--ink-muted)]">
-          Nothing has been read into this Circle yet. Pick the engagement of terms and it will
-          be turned into the mission statement, the parties, the plan, the dated deliverables
-          and the questions it leaves open.
+          Nothing has been read into this Circle yet. Tick the engagement of terms — and its
+          schedules, if they are separate files — and they will be read together into the
+          mission statement, the parties, the plan, the dated deliverables and the questions
+          they leave open.
         </p>
 
         {readable.length === 0 ? (
@@ -570,21 +588,55 @@ function ConveneHere({
             register with “agent-readable” ticked, or turn it on for a document already there.
           </Empty>
         ) : (
-          <ul className="divide-y divide-[var(--rule)]">
-            {readable.map((item) => (
-              <li key={item.id} className="flex items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-[560]">{item.name}</p>
-                  <p className="text-xs text-[var(--ink-faint)]">
-                    {item.current_version?.original_filename}
-                  </p>
-                </div>
-                <Button variant="quiet" onClick={() => read(item)} disabled={busy !== null}>
-                  {busy === item.id ? "Reading…" : "Read this"}
-                </Button>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="divide-y divide-[var(--rule)]">
+              {readable.map((item) => {
+                const ticked = chosen.includes(item.id);
+
+                return (
+                  <li key={item.id}>
+                    <label
+                      className={`flex items-center gap-3 py-2.5 ${
+                        !ticked && full ? "cursor-not-allowed opacity-45" : "cursor-pointer"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={ticked}
+                        disabled={busy || (!ticked && full)}
+                        onChange={(e) =>
+                          setChosen((c) =>
+                            e.target.checked ? [...c, item.id] : c.filter((id) => id !== item.id),
+                          )
+                        }
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-[560]">{item.name}</span>
+                        <span className="block text-xs text-[var(--ink-faint)]">
+                          {item.current_version?.original_filename}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" onClick={read} disabled={busy || chosen.length === 0}>
+                {busy
+                  ? "Reading…"
+                  : chosen.length <= 1
+                    ? "Read this"
+                    : `Read these ${chosen.length} together`}
+              </Button>
+              {full && (
+                <span className="text-xs text-[var(--ink-faint)]">
+                  Up to {CONVENE_MAX_FILES} documents are read together.
+                </span>
+              )}
+            </div>
+          </>
         )}
 
         {unreadable.length > 0 && (
@@ -631,7 +683,7 @@ function Receipt({
   return (
     <div className="space-y-4">
       <Panel
-        title="Built from the document"
+        title={proposal.sources.length > 1 ? "Built from the documents" : "Built from the document"}
         tone="derived"
         className="lay-in"
         meta={
@@ -732,7 +784,15 @@ function Receipt({
       </Panel>
 
       {plan.open_questions.length > 0 && (
-        <Panel title="What the document leaves open" tone="derived" className="lay-in">
+        <Panel
+          title={
+            proposal.sources.length > 1
+              ? "What the documents leave open"
+              : "What the document leaves open"
+          }
+          tone="derived"
+          className="lay-in"
+        >
           <ul className="space-y-3 px-5 pb-5">
             {plan.open_questions.map((q, i) => (
               <li key={i}>

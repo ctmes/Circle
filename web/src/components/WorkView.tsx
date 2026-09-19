@@ -12,18 +12,10 @@ import {
 import { BranchBar } from "./BranchBar";
 import { BranchEditor } from "./BranchEditor";
 import { CircleFrame } from "./CircleFrame";
+import { GoalComposer, GoalEditForm, RescheduleForm } from "./GoalForms";
 import { GoalTree, statsFor } from "./GoalTree";
 import { Discussion } from "./Thread";
-import {
-  Button,
-  Empty,
-  ErrorNote,
-  Field,
-  Loading,
-  Panel,
-  inputClass,
-  useAsync,
-} from "./ui";
+import { Button, Empty, ErrorNote, Loading, Panel, useAsync } from "./ui";
 
 /**
  * Work — the goal tree, and the view the product is now organised around.
@@ -281,6 +273,7 @@ function GoalDetail({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [editing, setEditing] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
   const [addingChild, setAddingChild] = useState(false);
   const [showDiscussion, setShowDiscussion] = useState(false);
@@ -391,6 +384,12 @@ function GoalDetail({
         />
       ) : (
         <div className="flex flex-wrap items-center gap-1.5">
+          {canUpdate && !goal.accepted_at && goal.id !== null && (
+            <Button variant="quiet" disabled={busy} onClick={() => setEditing((v) => !v)}>
+              {editing ? "Cancel" : "Edit"}
+            </Button>
+          )}
+
           {canUpdate && !goal.accepted_at && (
             <Button variant="quiet" disabled={busy} onClick={() => setRescheduling((v) => !v)}>
               {rescheduling ? "Cancel" : "Move date"}
@@ -438,6 +437,19 @@ function GoalDetail({
         </p>
       )}
 
+      {editing && (
+        <GoalEditForm
+          goal={goal}
+          parties={parties}
+          members={members}
+          onDone={() => {
+            setEditing(false);
+            onChanged();
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+
       {rescheduling && (
         <RescheduleForm
           goal={goal}
@@ -479,224 +491,6 @@ function GoalDetail({
           />
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Moving a date, with a reason.
- *
- * The reason is not optional in spirit — a date that can move silently carries
- * no weight, and in inter-company work a slipped date is the thing people end
- * up arguing about. Naming the party that has to agree makes the unagreed move
- * visible instead of settled.
- */
-function RescheduleForm({
-  goal,
-  parties,
-  onDone,
-  onCancel,
-}: {
-  goal: Goal;
-  parties: Party[];
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  const [dueAt, setDueAt] = useState(goal.due_at?.slice(0, 10) ?? "");
-  const [reason, setReason] = useState("");
-  const [requiresParty, setRequiresParty] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  return (
-    <div className="mt-3 space-y-3 rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper-inset)] p-3.5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="New date">
-          <input
-            type="date"
-            value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
-            className={inputClass}
-          />
-        </Field>
-        <Field
-          label="Needs agreement from"
-          hint="Leave empty if this move affects nobody else."
-        >
-          <select
-            value={requiresParty}
-            onChange={(e) => setRequiresParty(e.target.value)}
-            className={inputClass}
-          >
-            <option value="">nobody</option>
-            {parties
-              .filter((p) => !p.is_convener)
-              .map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-          </select>
-        </Field>
-      </div>
-
-      <Field label="Why is it moving?">
-        <input
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Freight confirmation still pending."
-          className={inputClass}
-        />
-      </Field>
-
-      {!!error && <ErrorNote error={error} />}
-
-      <div className="flex gap-2">
-        <Button
-          variant="primary"
-          disabled={busy || !reason.trim()}
-          onClick={async () => {
-            setBusy(true);
-            setError(null);
-            try {
-              await api.post(`/goals/${goal.id}/reschedule`, {
-                due_at: dueAt ? new Date(dueAt).toISOString() : null,
-                reason,
-                requires_party_id: requiresParty || null,
-              });
-              onDone();
-            } catch (e) {
-              setError(e);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Moving…" : "Move the date"}
-        </Button>
-        <Button variant="quiet" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function GoalComposer({
-  circleId,
-  parentId,
-  parties,
-  members,
-  onDone,
-  onCancel,
-}: {
-  circleId: string;
-  parentId: string | null;
-  parties: Party[];
-  members: Member[];
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [owner, setOwner] = useState("");
-  const [party, setParty] = useState("");
-  const [condition, setCondition] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function submit() {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.post(`/circles/${circleId}/goals`, {
-        title,
-        parent_goal_id: parentId,
-        owner_user_id: owner || null,
-        responsible_party_id: party || null,
-        acceptance_condition: condition || null,
-        due_at: dueAt ? new Date(dueAt).toISOString() : null,
-      });
-      onDone();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="space-y-3 rounded-[var(--r-control)] border border-[var(--rule)] bg-[var(--paper-inset)] p-4">
-      <Field label={parentId ? "What is the sub-goal?" : "What is the goal?"}>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus
-          placeholder={
-            parentId
-              ? "Geotechnical review complete"
-              : "Bid package ready to submit"
-          }
-          className={inputClass}
-        />
-      </Field>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Owner">
-          <select value={owner} onChange={(e) => setOwner(e.target.value)} className={inputClass}>
-            <option value="">unassigned</option>
-            {members.map((m) => (
-              <option key={m.user.id} value={m.user.id}>
-                {m.user.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        {/* The company on the hook for it, which outlives whoever owns it today. */}
-        <Field label="Responsible company">
-          <select value={party} onChange={(e) => setParty(e.target.value)} className={inputClass}>
-            <option value="">not set</option>
-            {parties.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Due">
-          <input
-            type="date"
-            value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
-            className={inputClass}
-          />
-        </Field>
-      </div>
-
-      <Field
-        label="Done when"
-        hint="Agree this up front. Without it, “done” is whatever the owner says it is."
-      >
-        <input
-          value={condition}
-          onChange={(e) => setCondition(e.target.value)}
-          placeholder="Signed geotechnical report uploaded to this Circle."
-          className={inputClass}
-        />
-      </Field>
-
-      {!!error && <ErrorNote error={error} />}
-
-      <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || !title.trim()} onClick={submit}>
-          {busy ? "Adding…" : parentId ? "Add sub-goal" : "Add goal"}
-        </Button>
-        <Button variant="quiet" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
     </div>
   );
 }

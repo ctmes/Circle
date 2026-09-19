@@ -114,6 +114,7 @@ class OrganisationController extends Controller
                 // Only the caller's own Circles within this organisation.
                 'circles' => $request->user()->circles()
                     ->where('organisation_id', $organisation->id)
+                    ->whereNull('deleted_at')
                     ->orderByDesc('created_at')
                     ->get(['id', 'name', 'purpose', 'status', 'expires_at', 'closed_at']),
             ],

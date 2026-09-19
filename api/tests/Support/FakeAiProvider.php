@@ -27,6 +27,23 @@ class FakeAiProvider implements AiProvider
         $this->response = $response;
     }
 
+    /**
+     * Replies for successive calls, in order — for a flow that asks two
+     * different questions, such as routing a transcript and then reading it.
+     * When the queue runs out, the single response set above answers.
+     *
+     * @var list<array>
+     */
+    private array $queued = [];
+
+    /** @var list<string|null> which task each call was made for */
+    public array $tasks = [];
+
+    public function queueResponses(array ...$responses): void
+    {
+        array_push($this->queued, ...$responses);
+    }
+
     /** Which task asked, so a test can assert the routing without a real model. */
     public ?string $lastTask = null;
 
@@ -35,6 +52,12 @@ class FakeAiProvider implements AiProvider
         $this->lastTask = $task;
 
         return $this;
+    }
+
+    /** The response for this call: the next queued one, or the standing one. */
+    private function nextResponse(): array
+    {
+        return $this->queued !== [] ? array_shift($this->queued) : $this->response;
     }
 
     public function isConfigured(): bool
@@ -63,8 +86,10 @@ class FakeAiProvider implements AiProvider
             throw $this->throws;
         }
 
+        $this->tasks[] = $this->lastTask;
+
         return new AiResult(
-            data: $this->response,
+            data: $this->nextResponse(),
             provider: $this->name(),
             model: $this->model(),
             inputTokens: 1234,

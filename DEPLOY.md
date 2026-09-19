@@ -63,6 +63,10 @@ none of them have safe defaults. The ones that are easy to get wrong:
   both are needed, because an S3 signature covers the host it was signed against.
   A single wrong value here produces uploads that appear to work and downloads
   that 403.
+- **`DB_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`** — copies of
+  `POSTGRES_PASSWORD`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` from the
+  compose `.env` below. Nothing copies them for you, and a mismatch shows up as
+  a failed migration or a failed upload rather than as a config error.
 - **`CORS_ALLOWED_ORIGINS`** — your one origin. Never `*` on a reachable host.
 - **`APP_DEBUG=false`** — a stack trace names your paths, your queries and
   sometimes your secrets.
@@ -92,7 +96,13 @@ docker compose -f docker-compose.prod.yml run --rm api php artisan key:generate
 docker compose -f docker-compose.prod.yml run --rm api php artisan migrate --force
 docker compose -f docker-compose.prod.yml run --rm api php artisan config:cache
 docker compose -f docker-compose.prod.yml run --rm api php artisan route:cache
+docker compose -f docker-compose.prod.yml restart api
 ```
+
+The restart is not ceremony. The `api` container was already serving while the
+commands above wrote to its disk, and opcache in that image never re-reads a
+file it has compiled — so a request that landed mid-setup can leave it holding a
+pre-cache view of the app until it restarts.
 
 Create the storage bucket once, matching `AWS_BUCKET`:
 
@@ -192,11 +202,21 @@ git pull
 docker compose -f docker-compose.prod.yml run --rm api php artisan migrate --force
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml run --rm api php artisan config:cache
+docker compose -f docker-compose.prod.yml run --rm api php artisan route:cache
+docker compose -f docker-compose.prod.yml restart api web
 docker compose -f docker-compose.prod.yml exec worker php artisan horizon:terminate
 ```
 
 Take a backup first if the pull contains a migration. `config:cache` after every
-`.env` change, without exception — a cached config does not read the file.
+`.env` change, without exception — a cached config does not read the file — and
+restart `api` after it, because FPM does not re-read the cache file either.
+
+`up -d --build` alone does not deploy anything. It recreates a container only
+when its image or its definition changed, and a `git pull` usually changes
+neither: the code arrives through a bind mount. So `api` would keep answering
+from the opcache it built on the old code, and `web` would keep serving the
+bundle it built when it started. Restarting both is what makes the pull real;
+`web` rebuilds on the way up, so the site answers 502 for the minute that takes.
 
 `horizon:terminate` last, because the workers booted before `config:cache` ran
 and are holding the previous config in memory. It is a graceful stop — each

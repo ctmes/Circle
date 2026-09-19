@@ -6,7 +6,10 @@ use App\Enums\AgentExecutionMode;
 use App\Enums\Permission;
 use App\Models\AgentBlueprint;
 use App\Services\Agent\StewardPrompt;
+use App\Models\AgentTool;
+use App\Services\Agent\Tools\ToolRegistry;
 use App\Services\Convening\ConveningPrompt;
+use App\Services\Transcripts\TranscriptPrompt;
 use Illuminate\Database\Seeder;
 
 /**
@@ -97,5 +100,68 @@ class AgentBlueprintSeeder extends Seeder
                 'prompt_version' => ConveningPrompt::VERSION,
             ],
         );
+
+        // The Circle Scribe (spec 24). The only shipped agent that acts: it
+        // reads meeting transcripts and keeps the plan current, with nobody
+        // approving each change. Execute mode and autonomous — but autonomy
+        // reaches in-Circle writes only, by SideEffect rather than by anything
+        // here, so the five tools below are the whole of what it can do and a
+        // tool that reached outside the Circle would still wait for a person.
+        $scribe = AgentBlueprint::updateOrCreate(
+            ['key' => AgentBlueprint::SCRIBE],
+            [
+                'name'           => 'Circle Scribe',
+                'version'        => '1.0.0',
+                'is_system'      => true,
+                'status'         => 'active',
+                'provider'       => 'internal',
+                'execution_mode' => AgentExecutionMode::Execute->value,
+                'autonomous'     => true,
+                'mandate' => 'Reads meeting transcripts and keeps the plan current: adds the work a meeting agreed, '
+                    . 'updates what it changed, closes what it reported done and drops what it decided against. '
+                    . 'Acts without review, within this Circle only. Every change is on the action ledger with the '
+                    . 'words from the meeting it rests on.',
+                'allowed_actions' => [
+                    Permission::CircleView->value,
+                    Permission::ResourceAgentRead->value,
+                    Permission::GoalCreate->value,
+                    Permission::GoalUpdate->value,
+                    Permission::CommitmentCreate->value,
+                    Permission::AgentExecute->value,
+                ],
+                'prohibited_actions' => [
+                    'external_communication',
+                    'invite_users',
+                    'change_permissions',
+                    'accept_on_behalf_of_a_person',
+                    'delete_records',
+                    'read_outside_its_circle',
+                    'use_raw_user_or_connector_credentials',
+                ],
+                'prompt_version' => TranscriptPrompt::VERSION,
+            ],
+        );
+
+        // Its tools, declared from the handlers themselves so the schema the
+        // model is shown can never drift from the one the handler reads.
+        $registry = app(ToolRegistry::class);
+
+        foreach (['create_goal', 'update_goal', 'complete_goal', 'abandon_goal', 'create_commitment'] as $key) {
+            $handler = $registry->get($key);
+
+            AgentTool::updateOrCreate(
+                ['agent_blueprint_id' => $scribe->id, 'key' => $key],
+                [
+                    'name'                  => $handler->name(),
+                    'description'           => $handler->description(),
+                    'side_effect'           => $handler->sideEffect()->value,
+                    'requires_approval'     => false,
+                    'approval_role'         => null,
+                    'requires_owning_party' => false,
+                    'input_schema_json'     => $handler->inputSchema(),
+                    'enabled'               => true,
+                ],
+            );
+        }
     }
 }

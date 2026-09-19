@@ -87,7 +87,12 @@ class AgentActionService
         return DB::transaction(function () use (
             $agent, $tool, $arguments, $intent, $onBehalfOf, $agentRunId, $idempotencyKey, $circle
         ) {
-            $needsHuman = $tool->needsApproval();
+            // An autonomous agent's in-Circle writes are approved by policy
+            // (spec §24). Only ever inside the Circle: the side effect decides
+            // whether autonomy can apply at all, so a blueprint flagged
+            // autonomous still waits for a person before anything leaves.
+            $byPolicy   = $this->approvedByPolicy($agent, $tool);
+            $needsHuman = $tool->needsApproval() && ! $byPolicy;
 
             $action = AgentAction::create([
                 'circle_id'             => $circle->id,
@@ -99,6 +104,9 @@ class AgentActionService
                 'status'                => $needsHuman
                     ? AgentActionStatus::AwaitingApproval
                     : AgentActionStatus::Approved,
+                // Stamped when policy rather than a person agreed, so the row
+                // reads as approved without implying anybody looked at it.
+                'approved_at'           => $needsHuman ? null : now(),
                 'intent'                => $intent,
                 'arguments_json'        => $arguments,
                 'on_behalf_of_party_id' => $onBehalfOf?->id,
@@ -117,6 +125,7 @@ class AgentActionService
                     'tool'            => $tool->key,
                     'side_effect'     => $tool->side_effect->value,
                     'needs_approval'  => $needsHuman,
+                    'approved_by'     => $byPolicy ? 'policy:autonomous' : null,
                     'on_behalf_of'    => $onBehalfOf?->label(),
                     'intent'          => $intent,
                     'arguments'       => $arguments,
@@ -125,6 +134,51 @@ class AgentActionService
 
             return $action;
         });
+    }
+
+    /**
+     * Whether this action needs nobody's approval because the agent is
+     * autonomous and the action stays inside the Circle.
+     */
+    private function approvedByPolicy(AgentInstance $agent, AgentTool $tool): bool
+    {
+        $blueprint = $agent->relationLoaded('blueprint') ? $agent->blueprint : $agent->blueprint()->first();
+
+        return (bool) $blueprint?->autonomous && $tool->side_effect->mayRunAutonomously();
+    }
+
+    /**
+     * Why this member may not approve this action, beyond what the gate says —
+     * or null if they may.
+     *
+     * Kept apart from approve() so that the Circle list, which counts what is
+     * waiting on somebody, asks exactly the question approval will. A count
+     * that includes actions you would be refused is a count of chores you
+     * cannot do.
+     */
+    public function approvalRefusal(AgentAction $action, CircleMembership $membership): ?string
+    {
+        $tool = $action->tool;
+
+        if ($tool === null) {
+            return null;
+        }
+
+        $required = $tool->effectiveApprovalRole();
+
+        // Owner satisfies anything; otherwise the role must match exactly
+        // what the side effect demands.
+        if ($required !== null && $membership->circle_role !== CircleRole::Owner && $membership->circle_role !== $required) {
+            return sprintf('This action needs a %s to approve it.', $required->value);
+        }
+
+        if ($tool->needsOwningPartyApprover()
+            && $action->on_behalf_of_party_id !== null
+            && $membership->circle_party_id !== $action->on_behalf_of_party_id) {
+            return 'Only the party this action acts for can approve it.';
+        }
+
+        return null;
     }
 
     /**
@@ -147,26 +201,8 @@ class AgentActionService
         $circle = $action->circle;
         $this->gate->authorise($approver, Permission::AgentApprove, $circle);
 
-        $membership = $this->membership($circle, $approver);
-        $tool       = $action->tool;
-
-        if ($tool !== null) {
-            $required = $tool->effectiveApprovalRole();
-
-            // Owner satisfies anything; otherwise the role must match exactly
-            // what the side effect demands.
-            if ($required !== null && $membership->circle_role !== CircleRole::Owner && $membership->circle_role !== $required) {
-                abort(403, sprintf('This action needs a %s to approve it.', $required->value));
-            }
-
-            if ($tool->needsOwningPartyApprover() && $action->on_behalf_of_party_id !== null) {
-                abort_unless(
-                    $membership->circle_party_id === $action->on_behalf_of_party_id,
-                    403,
-                    'Only the party this action acts for can approve it.',
-                );
-            }
-        }
+        $refusal = $this->approvalRefusal($action, $this->membership($circle, $approver));
+        abort_if($refusal !== null, 403, (string) $refusal);
 
         return DB::transaction(function () use ($action, $approver, $note, $circle) {
             $action->update([

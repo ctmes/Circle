@@ -101,6 +101,9 @@ export interface Circle {
   closed_at: string | null;
   is_closed: boolean;
   is_expired: boolean;
+  /** Deleted is a state, not a missing row. A deleted Circle is always closed too. */
+  deleted_at: string | null;
+  is_deleted: boolean;
   created_at: string;
   my_role: string | null;
   my_access: {
@@ -110,6 +113,29 @@ export interface Circle {
     /** Role defaults plus any per-user grants, minus any explicit denials. */
     permissions: string[];
   } | null;
+}
+
+/**
+ * What the Circle list carries about each Circle, beyond the Circle itself.
+ * Only `GET /circles` returns it; inside a Circle each fact has its own screen.
+ */
+export interface CircleDigest {
+  jobs: { total: number; done: number };
+  /** Late work and late commitments together. Always 0 on a closed Circle. */
+  overdue: number;
+  next_due: { title: string; due_at: string } | null;
+  members: number;
+  last_activity_at: string | null;
+  /** Each count is only what the reader could actually act on. */
+  waiting: {
+    decisions: number;
+    mentions: number;
+    agent_actions: number;
+    date_changes: number;
+    to_accept: number;
+    revisions: number;
+    yours_overdue: number;
+  };
 }
 
 export interface EvidenceVersion {
@@ -707,6 +733,20 @@ export function relativeDays(iso: string | null): string {
   if (days === 0) return "due today";
   if (days === 1) return "1 day left";
   return `${days} days left`;
+}
+
+/** How long ago something happened, as a person would say it. */
+export function timeAgo(iso: string | null): string {
+  if (!iso) return "—";
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  return formatDate(iso);
 }
 
 /** Renders a citation locator the way a person would read it aloud. */

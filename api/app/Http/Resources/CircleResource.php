@@ -26,6 +26,8 @@ class CircleResource extends JsonResource
             'closed_at'       => $this->closed_at?->toISOString(),
             'is_closed'       => $this->isClosed(),
             'is_expired'      => $this->isExpired(),
+            'deleted_at'      => $this->deleted_at?->toISOString(),
+            'is_deleted'      => $this->isDeleted(),
             'created_at'      => $this->created_at?->toISOString(),
             // What *this* caller may do here, so the UI never offers an action
             // the gate will refuse.

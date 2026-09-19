@@ -133,9 +133,14 @@ export type ConveneStage =
   | "building"
   | "done";
 
+/** What the Convener can read text out of, and how many it reads in one go. */
+export const CONVENE_EXTENSIONS = ["pdf", "docx", "txt", "md"];
+export const CONVENE_MAX_FILES = 10;
+
 export interface ConveneOptions {
   organisationId: string;
-  file: File;
+  /** Read together as one engagement: a contract and its schedules, say. */
+  files: File[];
   /** Anything the person wants the Convener to check the document for. */
   lookFor?: string[];
   onStage?: (stage: ConveneStage, detail?: string) => void;
@@ -151,7 +156,36 @@ export interface ConveneResult {
 }
 
 /**
- * Open a Circle, put the document in it, and read it.
+ * Why these files cannot be convened, or null.
+ *
+ * Checked before anything is created. A drag-and-drop is not filtered by the
+ * picker's `accept`, and finding out about the spreadsheet in the middle of the
+ * drop, after a Circle has been opened, leaves a half-built Circle behind for a
+ * mistake that was visible from the filenames.
+ */
+export function conveneRefusal(files: File[]): string | null {
+  if (files.length === 0) return "Choose at least one document.";
+
+  if (files.length > CONVENE_MAX_FILES) {
+    return `Up to ${CONVENE_MAX_FILES} documents can be read together. ${files.length} were chosen.`;
+  }
+
+  const unreadable = files.filter(
+    (f) => !CONVENE_EXTENSIONS.includes(f.name.split(".").pop()?.toLowerCase() ?? ""),
+  );
+
+  if (unreadable.length > 0) {
+    return (
+      `${unreadable.map((f) => f.name).join(", ")} cannot be read for convening. ` +
+      `Use PDF, DOCX, TXT or MD, and add anything else to the Circle's evidence afterwards.`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Open a Circle, put the documents in it, and read them together.
  *
  * Four round trips and a poll. The poll is the honest part of this: text
  * extraction is a queued job, and a flow that pretended otherwise would either
@@ -159,61 +193,78 @@ export interface ConveneResult {
  * was anything to read. What the caller gets is a stage per step, so the person
  * watching knows whether they are waiting on their own network or on a
  * hundred-page PDF being turned into text.
+ *
+ * Several files are one engagement, not several: a contract whose schedules
+ * arrived as separate PDFs is read in one call and makes one Circle.
  */
-export async function conveneFromDocument({
+export async function conveneFromDocuments({
   organisationId,
-  file,
+  files,
   lookFor = [],
   onStage = () => {},
   extractionTimeoutMs = 180_000,
 }: ConveneOptions): Promise<ConveneResult> {
+  const refusal = conveneRefusal(files);
+  if (refusal) throw new Error(refusal);
+
   onStage("opening");
 
   const circle = (
     await api.post<{ data: Circle }>("/circles", {
       organisation_id: organisationId,
-      // Named after the document until the plan lands, seconds later, at which
-      // point the mission statement replaces it — through the audited path, so
-      // the history shows what it was called before and why it changed.
-      name: provisionalName(file.name),
+      // Named after the first document until the plan lands, seconds later, at
+      // which point the mission statement replaces it — through the audited
+      // path, so the history shows what it was called before and why it changed.
+      name: provisionalName(files[0].name),
       purpose:
         "Convening from an uploaded engagement of terms. This wording is replaced by the " +
         "one read out of the document.",
     })
   ).data;
 
-  const picked: Picked[] = [{ file, path: file.name }];
+  const picked: Picked[] = files.map((file) => ({ file, path: file.name }));
+  const failed = new Map<string, string>();
 
   const upload = await uploadEvidence({
     circleId: circle.id,
     picked,
-    // The document is uploaded to be read by an agent. Saying so explicitly is
-    // the point of the flag — the Convener is refused anything not marked, and
-    // a flow that set this quietly behind the person's back would make the
+    // The documents are uploaded to be read by an agent. Saying so explicitly
+    // is the point of the flag — the Convener is refused anything not marked,
+    // and a flow that set this quietly behind the person's back would make the
     // whole opt-in meaningless.
     agentRead: true,
-    onState: (_path, state, error) => onStage(state, error),
+    onState: (path, state, error) => {
+      if (state === "failed") failed.set(path, error ?? "Failed.");
+      else onStage(state);
+    },
   });
 
-  const item = upload.created[0];
-
-  if (!item) {
-    const reason = upload.rejected[0]?.reason ?? "The document could not be stored.";
-    throw new Error(reason);
+  // All or nothing. Reading the contract without the schedule that did not
+  // upload would build a plan that looks complete and is not — the same
+  // failure as a truncated document, with nothing in the plan to say so.
+  if (failed.size > 0 || upload.created.length < files.length) {
+    const named = [...failed].map(([path, reason]) => `${path}: ${reason}`);
+    throw new Error(
+      (named.length > 0 ? named.join(" ") : "Not every document could be stored.") +
+        (upload.created.length > 0
+          ? ` Nothing was read. “${circle.name}” was opened with the rest — add the missing ` +
+            "document to its evidence, then read them together from its Convening page."
+          : ""),
+    );
   }
 
   onStage("extracting");
-  await waitForText(item.id, extractionTimeoutMs);
+  await Promise.all(upload.created.map((item) => waitForText(item.id, extractionTimeoutMs)));
 
   onStage("reading");
 
-  // One call reads the document and writes the Circle. The server does both in
-  // that order and reports what it wrote, so there is no window in which the
+  // One call reads the documents and writes the Circle. The server does both
+  // in that order and reports what it wrote, so there is no window in which the
   // browser holds a plan that exists nowhere else — a tab closed mid-flow
   // leaves a finished Circle rather than a lost reading.
   const proposal = (
     await api.post<{ data: ConvenedProposal }>(`/circles/${circle.id}/convening`, {
-      evidence_item_ids: [item.id],
+      evidence_item_ids: upload.created.map((item) => item.id),
       look_for: lookFor.filter((q) => q.trim() !== ""),
     })
   ).data;

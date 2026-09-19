@@ -1,13 +1,20 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { api, clearToken, formatDate, relativeDays, type Circle } from "../lib/api";
+import { Fragment, useEffect, useState } from "react";
+import {
+  api,
+  clearToken,
+  formatDate,
+  relativeDays,
+  timeAgo,
+  type Circle,
+  type CircleDigest,
+} from "../lib/api";
 import {
   Button,
   Empty,
   ErrorNote,
   Field,
   Loading,
-  Meta,
   Panel,
   inputClass,
   useAsync,
@@ -26,10 +33,32 @@ import { Wordmark } from "./Wordmark";
  */
 export function CircleListView() {
   const [creating, setCreating] = useState(false);
-  const { data, error, loading } = useAsync<Circle[]>(
-    () => api.get<{ data: Circle[] }>("/circles").then((r) => r.data),
+  const { data, error, loading, mutate } = useAsync<ListedCircle[]>(
+    () => api.get<{ data: ListedCircle[] }>("/circles").then((r) => r.data),
     [],
   );
+
+  // Read from the URL after hydration rather than during render, so the
+  // server's markup and the first client render agree.
+  const [tab, setTab] = useState<Tab>("active");
+  useEffect(() => {
+    const t = new URLSearchParams(location.search).get("tab");
+    if (t === "archived" || t === "deleted") setTab(t);
+  }, []);
+
+  function show(next: Tab) {
+    setTab(next);
+    history.replaceState(null, "", next === "active" ? location.pathname : `?tab=${next}`);
+  }
+
+  // Every archive, delete and restore answers with the Circle as it now
+  // stands, so it is spliced in and the card moves tab without a refetch.
+  // The answer carries no digest — only the list computes one — so the card
+  // keeps the one it had. A closed Circle shows none of the parts that could
+  // have gone stale.
+  function replace(next: Circle) {
+    mutate((all) => all.map((c) => (c.id === next.id ? { ...next, digest: c.digest } : c)));
+  }
 
   // Which company is convening is one answer, not one per panel. It was inside
   // the form until there were two ways to open a Circle, at which point picking
@@ -45,8 +74,20 @@ export function CircleListView() {
     if (!organisationId && orgs?.length === 1) setOrganisationId(orgs[0].id);
   }, [orgs, organisationId]);
 
-  const active = (data ?? []).filter((c) => !c.is_closed);
-  const closed = (data ?? []).filter((c) => c.is_closed);
+  const circles = data ?? [];
+  const groups: Record<Tab, ListedCircle[]> = {
+    // Whatever needs you rises to the top; the rest keep their order, newest
+    // first. The sort is stable, so the order among equals never shuffles.
+    active: circles
+      .filter((c) => !c.is_closed && !c.is_deleted)
+      .sort((a, b) => waitingTotal(b) - waitingTotal(a)),
+    archived: circles.filter((c) => c.is_closed && !c.is_deleted),
+    deleted: circles.filter((c) => c.is_deleted),
+  };
+  const shown = groups[tab];
+
+  const waiting = groups.active.reduce((sum, c) => sum + waitingTotal(c), 0);
+  const waitingIn = groups.active.filter((c) => waitingTotal(c) > 0).length;
 
   return (
     <div className="min-h-screen">
@@ -54,6 +95,13 @@ export function CircleListView() {
         <div className="mx-auto flex max-w-[900px] items-center justify-between px-6 py-3">
           <Wordmark size={17} />
           <div className="flex items-center gap-1">
+            {/* Meetings in, and what each one changed (spec 24). */}
+            <a
+              href="/meetings"
+              className="rounded-[var(--r-control)] px-2.5 py-1.5 text-[0.8125rem] text-[var(--ink-muted)] no-underline transition-colors hover:bg-[var(--paper-sunk)] hover:text-[var(--ink)]"
+            >
+              Meetings
+            </a>
             {/* Open work, contracts and the record — none of which is a Circle. */}
             <a
               href="/work"
@@ -123,77 +171,170 @@ export function CircleListView() {
         {!!error && <ErrorNote error={error} />}
 
         {data && (
-          <div className="space-y-8">
-            <Section title="Active">
-              {active.length === 0 ? (
-                <Panel>
-                  <Empty>
-                    You're not in any open Circle yet. One will show up here once
-                    someone invites you.
-                  </Empty>
-                </Panel>
-              ) : (
-                <ul className="space-y-3">
-                  {active.map((c, i) => (
-                    <CircleCard key={c.id} circle={c} index={i} />
-                  ))}
-                </ul>
-              )}
-            </Section>
-
-            {closed.length > 0 && (
-              <Section title="Closed" meta={`${closed.length}`}>
-                <ul className="space-y-3">
-                  {closed.map((c, i) => (
-                    <CircleCard key={c.id} circle={c} index={i} />
-                  ))}
-                </ul>
-              </Section>
+          <>
+            {/* One line across every Circle, so the first question — is anything
+                waiting on me? — is answered before reading a single card. */}
+            {groups.active.length > 0 && (
+              <p className="mb-4 flex items-center gap-2 px-1 text-[0.8125rem]">
+                {waiting > 0 ? (
+                  <>
+                    <span className="inline-block size-[7px] shrink-0 rounded-full bg-[var(--signal)]" aria-hidden="true" />
+                    <span className="font-[600] text-[var(--ink)]">
+                      {waiting} {waiting === 1 ? "thing" : "things"} waiting on you
+                    </span>
+                    <span className="text-[var(--ink-muted)]">
+                      {waitingIn === 1 ? "in 1 Circle" : `across ${waitingIn} Circles`}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[var(--ink-faint)]">Nothing is waiting on you.</span>
+                )}
+              </p>
             )}
-          </div>
+
+            <nav className="mb-5 flex flex-wrap gap-1 border-b border-[var(--rule)]" aria-label="Circle lists">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => show(t.key)}
+                  aria-current={tab === t.key ? "page" : undefined}
+                  className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[0.8125rem] transition-colors ${
+                    tab === t.key
+                      ? "border-[var(--ink)] font-medium text-[var(--ink)]"
+                      : "border-transparent text-[var(--ink-faint)] hover:text-[var(--ink-muted)]"
+                  }`}
+                >
+                  {t.label}
+                  {groups[t.key].length > 0 && (
+                    <span className="tabular text-xs text-[var(--ink-faint)]">
+                      {groups[t.key].length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </nav>
+
+            {TAB_NOTE[tab] && (
+              <p className="mb-4 max-w-xl px-1 text-[0.8125rem] leading-relaxed text-[var(--ink-muted)]">
+                {TAB_NOTE[tab]}
+              </p>
+            )}
+
+            {shown.length === 0 ? (
+              <Panel>
+                <Empty>{TAB_EMPTY[tab]}</Empty>
+              </Panel>
+            ) : (
+              <ul className="space-y-3">
+                {shown.map((c, i) => (
+                  <CircleCard key={c.id} circle={c} index={i} onChange={replace} />
+                ))}
+              </ul>
+            )}
+          </>
         )}
       </main>
     </div>
   );
 }
 
-/**
- * A group heading that sits on the page rather than inside a card — so each
- * Circle can be its own tappable card instead of a row in a table.
- */
-function Section({
-  title,
-  meta,
-  children,
-}: {
-  title: string;
-  meta?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section>
-      <div className="mb-3 flex items-baseline justify-between px-1">
-        <h2 className="display text-[0.9375rem] font-[600] text-[var(--ink)]">{title}</h2>
-        {meta && <Meta>{meta}</Meta>}
-      </div>
-      {children}
-    </section>
-  );
-}
+type Tab = "active" | "archived" | "deleted";
 
-function CircleCard({ circle, index }: { circle: Circle; index: number }) {
+const TABS: Array<{ key: Tab; label: string }> = [
+  { key: "active", label: "Active" },
+  { key: "archived", label: "Archived" },
+  { key: "deleted", label: "Deleted" },
+];
+
+const TAB_NOTE: Record<Tab, string | null> = {
+  active: null,
+  archived:
+    "Closed for good. Your own people keep a read-only record they can still export; external collaborators and agents have no access.",
+  deleted:
+    "Out of everyone's reach, you included. Nothing in them has been erased — restore one and it comes back as an archived record.",
+};
+
+const TAB_EMPTY: Record<Tab, string> = {
+  active:
+    "You're not in any open Circle yet. One will show up here once someone invites you.",
+  archived: "Nothing archived yet.",
+  deleted: "Nothing deleted.",
+};
+
+type Act = "archive" | "delete" | "restore";
+
+function CircleCard({
+  circle,
+  index,
+  onChange,
+}: {
+  circle: ListedCircle;
+  index: number;
+  onChange: (next: Circle) => void;
+}) {
+  const [confirming, setConfirming] = useState<Exclude<Act, "restore"> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const digest = circle.digest;
+  // Only an open Circle has anything waiting, late, or next.
+  const live = !circle.is_closed && !circle.is_deleted;
+
+  // Offered only where the gate would allow them, so nothing is shown and
+  // then refused. `circle.delete` covers restoring as well as deleting.
+  const perms = circle.my_access?.permissions ?? [];
+  const canArchive = !circle.is_closed && perms.includes("circle.close");
+  const canDelete = !circle.is_deleted && perms.includes("circle.delete");
+  const canRestore = circle.is_deleted && perms.includes("circle.delete");
+
+  // A deleted Circle cannot be opened by anyone, so it is not a link.
+  const openable = !circle.is_deleted;
+
+  async function act(kind: Act) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res =
+        kind === "archive"
+          ? await api.post<{ data: Circle }>(`/circles/${circle.id}/archive`)
+          : kind === "delete"
+            ? await api.del<{ data: Circle }>(`/circles/${circle.id}`)
+            : await api.post<{ data: Circle }>(`/circles/${circle.id}/restore`);
+      onChange(res.data);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <li className="lay-in" style={{ animationDelay: `${index * 40}ms` }}>
-      <a
-        href={`/circles/${circle.id}`}
-        className="card block px-5 py-4 no-underline transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-ring),var(--shadow-float)]"
+      <div
+        className={`card relative px-5 py-4 ${
+          openable
+            ? "transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-ring),var(--shadow-float)]"
+            : ""
+        }`}
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           {/* The ring carries how far along the mission is; the figure is in
               the footer, because a ring alone is a shape, not a number. */}
           <h3 className="display flex items-center gap-2.5 text-[1.0625rem] font-[600] text-[var(--ink)]">
             <Ring progress={circle.progress} tone={progressTone(circle)} size={20} />
-            {circle.name}
+            {openable ? (
+              // Stretched over the whole card, so the card stays one big
+              // target while the buttons below sit above it and stay buttons.
+              <a
+                href={`/circles/${circle.id}`}
+                className="no-underline after:absolute after:inset-0 after:rounded-[var(--r-card)] focus-visible:shadow-none focus-visible:after:shadow-[0_0_0_2px_var(--canvas),0_0_0_4px_color-mix(in_srgb,var(--accent)_60%,transparent)]"
+              >
+                {circle.name}
+              </a>
+            ) : (
+              circle.name
+            )}
           </h3>
           <span
             className={`text-[0.8125rem] ${
@@ -204,33 +345,229 @@ function CircleCard({ circle, index }: { circle: Circle; index: number }) {
                   : "text-[var(--ink-muted)]"
             }`}
           >
-            {circle.is_closed
-              ? `Closed ${formatDate(circle.closed_at)}`
-              : relativeDays(circle.expires_at)}
+            {circle.is_deleted
+              ? `Deleted ${formatDate(circle.deleted_at)}`
+              : circle.is_closed
+                ? `Archived ${formatDate(circle.closed_at)}`
+                : relativeDays(circle.expires_at)}
           </span>
         </div>
 
-        <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[var(--ink-muted)]">
+        {/* One line. The whole purpose is the first thing inside; here it
+            only has to say which mission this is. */}
+        <p className="mt-1 line-clamp-1 text-sm leading-relaxed text-[var(--ink-muted)]">
           {circle.purpose}
         </p>
 
-        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ink-faint)]">
-          <span className="tabular font-[560] text-[var(--ink-muted)]">
-            {circle.progress}%
-          </span>
-          <span aria-hidden="true">·</span>
-          <span className="capitalize">{circle.my_role ?? "—"}</span>
-          {circle.my_access?.is_external && (
-            <span className="rounded-[var(--r-chip)] bg-[var(--signal-soft)] px-1.5 py-0.5 font-[560] text-[var(--signal)]">
-              External
-            </span>
+        {live && digest && <WaitingOnYou circleId={circle.id} waiting={digest.waiting} />}
+
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0 space-y-1 text-xs">
+            {/* How the mission stands. Lateness and what is next only mean
+                anything while the Circle is open. */}
+            <Dotted
+              className="text-[var(--ink-muted)]"
+              items={[
+                <span className="tabular font-[560]">{circle.progress}%</span>,
+                digest && digest.jobs.total > 0 && (
+                  <span className="tabular">
+                    {digest.jobs.done} of {digest.jobs.total} {digest.jobs.total === 1 ? "job" : "jobs"} done
+                  </span>
+                ),
+                live && digest && digest.overdue > 0 && (
+                  <span className="tabular font-[560] text-[var(--signal)]">{digest.overdue} overdue</span>
+                ),
+                live && digest?.next_due && (
+                  <span className="flex min-w-0 max-w-[22rem] gap-1">
+                    <span className="shrink-0">Next:</span>
+                    <span className="truncate text-[var(--ink)]">{digest.next_due.title}</span>
+                    <span className="shrink-0">{dueIn(digest.next_due.due_at)}</span>
+                  </span>
+                ),
+              ]}
+            />
+
+            {/* Who is in it, and whether anything is happening. */}
+            <Dotted
+              className="text-[var(--ink-faint)]"
+              items={[
+                <span className="capitalize">{circle.my_role ?? "—"}</span>,
+                circle.my_access?.is_external && (
+                  <span className="rounded-[var(--r-chip)] bg-[var(--signal-soft)] px-1.5 py-0.5 font-[560] text-[var(--signal)]">
+                    External
+                  </span>
+                ),
+                <span>Owner {circle.owner.name ?? "—"}</span>,
+                digest && digest.members > 0 && (
+                  <span className="tabular">
+                    {digest.members} {digest.members === 1 ? "person" : "people"}
+                  </span>
+                ),
+                digest?.last_activity_at && <span>Updated {timeAgo(digest.last_activity_at)}</span>,
+              ]}
+            />
+          </div>
+
+          {!confirming && (canArchive || canDelete || canRestore) && (
+            <div className="relative z-10 -my-1 flex items-center gap-1">
+              {canArchive && (
+                <Button variant="quiet" className={compact} onClick={() => setConfirming("archive")}>
+                  Archive
+                </Button>
+              )}
+              {canDelete && (
+                <Button
+                  variant="quiet"
+                  className={`${compact} !text-[var(--signal)] hover:!bg-[var(--signal-soft)]`}
+                  onClick={() => setConfirming("delete")}
+                >
+                  Delete
+                </Button>
+              )}
+              {canRestore && (
+                <Button variant="quiet" className={compact} disabled={busy} onClick={() => act("restore")}>
+                  {busy ? "Restoring…" : "Restore"}
+                </Button>
+              )}
+            </div>
           )}
-          <span aria-hidden="true">·</span>
-          <span>Owner {circle.owner.name ?? "—"}</span>
-        </p>
-      </a>
+        </div>
+
+        {confirming && (
+          <div className="relative z-10 mt-4 space-y-3 rounded-[var(--r-control)] bg-[var(--paper-inset)] px-4 py-3">
+            <p className="text-sm leading-snug">
+              {confirming === "archive"
+                ? "Archiving closes this Circle for good. External collaborators lose access, agents stop, and nothing more can be added. Your own people keep a read-only record they can still export."
+                : circle.is_closed
+                  ? "Deleting takes this Circle out of everyone's reach, you included. Nothing in it is erased, and you can restore it from Deleted."
+                  : "Deleting takes this Circle out of everyone's reach, you included. It is archived first, so external access ends and agents stop. Nothing in it is erased, and you can restore it from Deleted."}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="danger" disabled={busy} onClick={() => act(confirming)}>
+                {confirming === "archive"
+                  ? busy ? "Archiving…" : "Yes, archive it"
+                  : busy ? "Deleting…" : "Yes, delete it"}
+              </Button>
+              <Button
+                variant="quiet"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(null);
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {!!error && (
+          <div className="relative z-10 mt-3">
+            <ErrorNote error={error} />
+          </div>
+        )}
+      </div>
     </li>
   );
+}
+
+/** Footer-sized, so the actions do not outweigh the Circle they act on. */
+const compact = "!px-2.5 !py-1.5 !text-xs";
+
+/** A Circle as the list serves it: the Circle, plus the list's own summary. */
+type ListedCircle = Circle & { digest: CircleDigest | null };
+
+type WaitingKind = keyof CircleDigest["waiting"];
+
+/**
+ * What can be waiting on you, most binding first, and where each is dealt
+ * with. A decision only you can resolve outranks a mention you can read at
+ * leisure, so the order is the order of the strip.
+ */
+const WAITING: Array<{ key: WaitingKind; label: (n: number) => string; path: string }> = [
+  { key: "decisions", label: (n) => `${n} ${n === 1 ? "decision" : "decisions"} to approve`, path: "/decisions" },
+  { key: "date_changes", label: (n) => `${n} date ${n === 1 ? "change" : "changes"} to agree`, path: "" },
+  { key: "revisions", label: (n) => `${n} plan ${n === 1 ? "revision" : "revisions"} to sign`, path: "/tree" },
+  { key: "to_accept", label: (n) => `${n} ${n === 1 ? "job" : "jobs"} to accept`, path: "" },
+  { key: "agent_actions", label: (n) => `${n} agent ${n === 1 ? "action" : "actions"} to review`, path: "/agents" },
+  { key: "yours_overdue", label: (n) => `${n} of yours overdue`, path: "" },
+  { key: "mentions", label: (n) => `${n} ${n === 1 ? "mention" : "mentions"}`, path: "" },
+];
+
+/** Kinds listed on a card before the rest collapse into "+N more". */
+const WAITING_LISTED = 3;
+
+function waitingTotal(c: ListedCircle): number {
+  if (!c.digest || c.is_closed || c.is_deleted) return 0;
+  return Object.values(c.digest.waiting).reduce((sum, n) => sum + n, 0);
+}
+
+/**
+ * The one tinted thing on a card, and only when something needs you. Absent
+ * otherwise — a strip saying "nothing" on every card would teach people to
+ * stop reading it.
+ */
+function WaitingOnYou({
+  circleId,
+  waiting,
+}: {
+  circleId: string;
+  waiting: CircleDigest["waiting"];
+}) {
+  const kinds = WAITING.filter((w) => waiting[w.key] > 0);
+  if (kinds.length === 0) return null;
+
+  const listed = kinds.slice(0, WAITING_LISTED);
+  const more = kinds.slice(WAITING_LISTED).reduce((sum, w) => sum + waiting[w.key], 0);
+
+  // Only the links sit above the card's stretched link, so a click anywhere
+  // else on the strip still opens the Circle.
+  const link = "relative z-10 no-underline hover:underline";
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-control)] bg-[var(--signal-soft)] px-3 py-2 text-[0.8125rem]">
+      <span className="flex items-center gap-2 font-[600] text-[var(--ink)]">
+        <span className="inline-block size-[7px] shrink-0 rounded-full bg-[var(--signal)]" aria-hidden="true" />
+        Waiting on you
+      </span>
+      {listed.map((w) => (
+        <a key={w.key} href={`/circles/${circleId}${w.path}`} className={`${link} text-[var(--accent)]`}>
+          {w.label(waiting[w.key])}
+        </a>
+      ))}
+      {more > 0 && (
+        <a href={`/circles/${circleId}`} className={`${link} text-[var(--ink-muted)]`}>
+          +{more} more
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** A run of short facts separated by dots, skipping any that are absent. */
+function Dotted({ items, className }: { items: ReactNode[]; className: string }) {
+  const present = items.filter(Boolean);
+
+  return (
+    <p className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${className}`}>
+      {present.map((item, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span aria-hidden="true">·</span>}
+          {item}
+        </Fragment>
+      ))}
+    </p>
+  );
+}
+
+/** When something is next due, relative while it is close. */
+function dueIn(iso: string): string {
+  const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days < 14) return `in ${days} days`;
+  return `on ${formatDate(iso)}`;
 }
 
 interface Org { id: string; name: string; slug: string }

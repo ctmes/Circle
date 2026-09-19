@@ -380,7 +380,7 @@ class GoalService
         return 1 + $children->max(fn (Goal $c) => $this->heightOf($c));
     }
 
-    private function depthOf(Goal $goal): int
+    public function depthOf(Goal $goal): int
     {
         $depth  = 0;
         $cursor = $goal;

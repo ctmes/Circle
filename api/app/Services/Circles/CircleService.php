@@ -362,4 +362,71 @@ class CircleService
             return $circle;
         });
     }
+
+    /**
+     * Takes a Circle out of everyone's reach. Nothing in it is removed.
+     *
+     * An open Circle is closed first, through the ordinary path, so that
+     * deletion never becomes a way round what closure guarantees: externals
+     * lose access as a recorded fact, agents stop, and everyone engaged here
+     * still carries their record away. A deleted Circle is therefore always a
+     * closed one, and restoring it brings back the closed record rather than
+     * reopening the work.
+     */
+    public function delete(Circle $circle, User $actor, ?string $reason = null): Circle
+    {
+        return DB::transaction(function () use ($circle, $actor, $reason) {
+            $wasOpen = ! $circle->isClosed();
+
+            if ($wasOpen) {
+                $circle = $this->close($circle, $actor, $reason);
+            }
+
+            // An invitation is a capability link. One that still works after
+            // its Circle has gone would hand out a membership to nothing, and
+            // restoring the Circle should not quietly bring the link back.
+            $invitations = Invitation::where('circle_id', $circle->id)
+                ->whereNull('accepted_at')
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now()]);
+
+            $circle->forceFill([
+                'deleted_at'         => now(),
+                'deleted_by_user_id' => $actor->id,
+            ])->save();
+
+            $this->audit->record(
+                AuditEventType::CircleDeleted, $circle, ActorType::User, $actor->id,
+                'circle', $circle->id, metadata: [
+                    'reason'              => $reason,
+                    'closed_by_deletion'  => $wasOpen,
+                    'invitations_revoked' => $invitations,
+                ],
+            );
+
+            return $circle;
+        });
+    }
+
+    /** Brings a deleted Circle back as the closed, read-only record it was. */
+    public function restore(Circle $circle, User $actor): Circle
+    {
+        return DB::transaction(function () use ($circle, $actor) {
+            $deletedAt = $circle->deleted_at;
+
+            $circle->forceFill([
+                'deleted_at'         => null,
+                'deleted_by_user_id' => null,
+            ])->save();
+
+            $this->audit->record(
+                AuditEventType::CircleRestored, $circle, ActorType::User, $actor->id,
+                'circle', $circle->id, metadata: [
+                    'deleted_at' => $deletedAt?->format(DATE_ATOM),
+                ],
+            );
+
+            return $circle;
+        });
+    }
 }

@@ -1293,3 +1293,89 @@ The reading itself cannot be edited. A record of what a document said that someb
 **No second document reconciles against the first.** Uploading a variation and asking what changed is the obvious next thing and is not built: a second reading produces a second proposal, which a person applies or does not.
 
 **Nothing is notified.** Convening writes a plan, deliverables and draft decisions, and tells nobody. §22's transport carries things that happened to *you*, and a Circle appearing fully formed is not yet one of them.
+
+24. Amendment — Meetings update the plan, and nobody checks first
+
+§23 read a document once, at the start, and wrote a Circle. This section reads every meeting after that, and keeps the Circle current: work a meeting agreed is added, work it reported done is closed, work it dropped is abandoned, dates it moved are moved. Transcripts arrive by hand or from a note-taker's automation, and no person approves the changes they cause.
+
+That reverses the rule every earlier section held for agents — propose, and wait for a human. It is reversed deliberately and narrowly, and the narrowness is the substance of this section.
+
+24.1 Autonomy is a property of the agent, bounded by the consequence
+
+`agent_blueprints.autonomous` lets an agent's actions be approved by policy at the moment they are proposed. It is off for every agent that existed before this section, including every one a customer has written, and on for exactly one: the Circle Scribe.
+
+It reaches in-Circle writes and nothing else. `SideEffect::mayRunAutonomously()` is true for `none` and `circle_write` only, and `AgentActionService::propose()` consults it rather than the blueprint alone — so an autonomous agent that proposes an email, a write to a connected system or anything financial still waits for a person, however it is configured. The line is the Circle's walls because everything inside them is on the chain, attributable, and undoable by a person who reads the log; anything outside them is not.
+
+Autonomy removed the approval. It did not remove the ledger. Every change the Scribe makes is an `agent_actions` row with its intent, its arguments, a quotation from the meeting and its result, approved at the moment of proposal with no approver named, and executed immediately. The ledger is how a person who was not in the room finds out why a goal closed on Tuesday, and it is the reason unattended writes are something this product can offer at all.
+
+24.2 The Circle Scribe
+
+A third agent ships with the product: `execute` mode, autonomous, and five tools — `create_goal`, `update_goal`, `complete_goal`, `abandon_goal`, `create_commitment`. The last is the one it inherited; the three in the middle are new, and all five are `circle_write`.
+
+The product's own agents are not partisan. A customer's agent acts for one company and may change only that company's work — the rule `ReportGoalProgressTool` always applied, now in `BaseTool::assertMayTouch()`. The Scribe reads the meeting record of the Circle as a whole, and a transcript saying "Northline have signed off the pad" means nothing if it can only touch JWA's goals. `is_system` blueprints may therefore touch any goal in the Circle, and name any of its parties when creating one.
+
+24.3 Closing, dropping and moving, on the record
+
+**Closing is not accepting.** Until now a goal reached `met` one way: somebody other than its owner accepted it, and `accepted_by_user_id` named them. A goal a meeting closes is `met` and `accepted_at` is set — it is settled — but `accepted_by_user_id` stays empty, because no person accepted it, and `completed_by_agent_run_id` names the reading that closed it. The difference survives into the export and the history.
+
+**Dropping is not deleting.** "Delete a goal" is `abandon_goal`. A goal is referenced by commitments, decisions, claims, filed evidence, schedule changes and the chain; removing the row would cascade through all of it or leave it pointing at nothing, and the packet would lose the record of work planned and then dropped. Abandoning cascades to the open work beneath and cancels the open commitments hanging off every goal it closes.
+
+**Both cascade.** "Mobilisation is done" does not mean the phase is done and its three packages still open.
+
+**A moved date is a schedule change.** The rule GoalService has always held — a date cannot move without the record saying who moved it and why — holds for agents. `goal_schedule_changes.changed_by_user_id` became nullable and `changed_by_agent_instance_id` was added, because filling the user column with whoever owns the connector would put a person's name on a date they never looked at.
+
+24.4 What the model is asked, and what it is not
+
+`TranscriptSchema` is held to the same bar as the two schemas before it. The model reads the meeting; the application counts.
+
+**Dates are periods.** A meeting says "push it back a week". The model returns `shift: {value: 1, unit: weeks}`, or `from_meeting` for "within ten working days", or `on` for a date somebody said; `WorkingCalendar` — the arithmetic that lived in PlanResolver, lifted out so contracts and meetings share one answer — does the counting.
+
+**Ids are the plan's.** An operation names a goal by the id it was shown, or one an earlier operation in the same meeting created by a label of the model's choosing. Labels are mapped to ids as the operations run; a label nothing created is refused, and the rest of the meeting still applies.
+
+**Every operation carries evidence.** Required, not optional.
+
+**Each operation is its own variant.** The first version was one object with an `op` field and fourteen optional properties. Against a live model it returned a `complete_goal` with no evidence, an empty ref and a reason reading "placeholder": a shape that says everything is optional tells the model nothing about what any one operation needs. As an `anyOf` of five variants, each with its own required fields, the same meeting produced exactly the right five changes.
+
+**Discussion is not decision.** The mandate draws the line — agreed, reported as fact, or taken on by someone — and requires the Scribe to report in `uncertainty` what it heard and chose not to act on. On the first live run it declined to create a second crane pad that one person floated and another said not to decide, and said so.
+
+**The transcript is data.** Anyone in a meeting can say anything, including the other side of a commercial relationship. The mandate says so; the transcript sits between markers it cannot close; and the Scribe's reach is five verbs over goals it was shown.
+
+24.5 Where a meeting goes
+
+A transcript is addressed to a company, not a Circle — a note-taker pushing every meeting through a webhook does not know which piece of work each one concerned. `TranscriptRouter` answers one of three things: an existing Circle, a new one, or none.
+
+The third answer matters as much as the other two. A router that could only choose between "existing" and "new" would open a Circle for every one-to-one. A meeting routed to nothing is recorded and not kept.
+
+Model use is kept to the question that needs it. A sender that names a Circle is taken at its word. A company with no Circles the person could act in gets "new" with no model call. Only a genuine choice between several goes to a model — Haiku 4.5, the cheapest, because it is a classification over a short list of names — and a choice outside the list it was shown fails the import rather than writing one meeting's decisions into another piece of work.
+
+A meeting that starts new work is convened by §23, with the meeting's date as the anchor for its periods. That fallback exists because the first live kickoff said "the pad within three weeks" and it landed in October: measured from the day it was processed, not the day it was said.
+
+24.6 The connector
+
+A connector token is a Sanctum token with two abilities: `transcripts:ingest`, and `org:<id>` naming the one company it may send to. `ConfineScopedTokens` refuses it on every route but `transcripts.ingest`, and the controller takes the company from the token rather than the request body.
+
+It is write-only. It cannot read a Circle, the log, or an import it sent — a resend of an applied meeting returns an id and a status and nothing else — because a token pasted into an automation service lives in that service's logs and that service's breaches from then on.
+
+Sanctum abilities are only enforced where a route asks for one, and until now none did, because every token was somebody's own session. The rule identifies a connector token by what it carries — the ingest ability without the wildcard — rather than by what it lacks, because "anything without `*`" also caught tokens that simply declared no abilities, which is not a scope anyone issued.
+
+Transcripts a connector sends run on the authority of the person who created it, and the log names them.
+
+24.7 The log, and the text
+
+`transcript_imports` is the log: where each meeting went and why, what it changed in counts and line by line with the quotation each change rests on, what it heard and did not act on, and which models did the routing and the reading.
+
+The transcript's text waits in the row only between arriving and being filed. Once filed it is ordinary evidence in the Circle — stored, hashed before anything reads it, extracted in the background, behind the gate — and the row's copy is cleared. The API never returns it: a company-wide log that repeated every meeting would be a way round every party scope a Circle has.
+
+Each stage checkpoints on the row. A failed import retried from the log is routed once, filed once, and a Scribe run that completed is never run again, because running a meeting twice would apply every change twice. A resend with the same `external_id` returns the original import.
+
+24.8 What this does not build
+
+**No note-taker is integrated.** Granola, Otter and Fireflies do not share a webhook format and none is built against. The endpoint takes a transcript and an automation service — Zapier, Make — sits between. The page says how to wire one.
+
+**No decisions are drafted from meetings.** A meeting's unsettled questions go in the log's "heard but not acted on", not into draft decisions as §23's open questions do. A weekly meeting's loose ends as a stream of drafts nobody owns would bury the ones a contract raised.
+
+**Nothing is notified.** A goal closed by a meeting tells nobody. That is the obvious gap in unattended writes and it is §22's transport to extend, not this section's.
+
+**No undo.** Every change is on the ledger and each is reversible by hand; there is no "revert this meeting". Reverting a meeting that later meetings built on is a merge problem, not a button.
+
+**Speaker identity is not verified.** "Northline signed it off" in a transcript is taken as said. The transcript's origin is the connector owner's authenticated upload; what it records is what somebody's microphone heard.

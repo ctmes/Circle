@@ -20,6 +20,7 @@ class GoalScheduleChange extends Model
     protected $fillable = [
         'goal_id', 'circle_id', 'from_due_at', 'to_due_at', 'reason',
         'changed_by_user_id', 'requires_party_id', 'agreed_by_user_id', 'agreed_at',
+        'changed_by_agent_instance_id',
     ];
 
     protected function casts(): array

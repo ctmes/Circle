@@ -75,10 +75,16 @@ class ConveningSchema
      * never disagree: a schema that let a model return level 4 into a tree
      * configured for 2 would produce a plan the resolver had to flatten on
      * every run.
+     *
+     * One short of the cap, not at it. A reading that fills every level leaves
+     * each of its leaves at the cap, and the first thing anybody does with a
+     * plan read out of a contract is break a deliverable down into the work it
+     * actually takes — which the tree would then refuse on every row the
+     * machine wrote. The last level is kept for the people doing the work.
      */
     public static function maxLevel(): int
     {
-        return GoalService::maxDepth();
+        return max(1, GoalService::maxDepth() - 1);
     }
 
     public static function build(): array

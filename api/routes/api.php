@@ -58,7 +58,9 @@ Route::middleware('throttle:20,1')->group(function () {
 
 Route::middleware('throttle:6,1')->post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
 
-Route::middleware('auth:sanctum')->group(function () {
+// ConfineScopedTokens: a token issued for one purpose — a note-taker's
+// transcript connector — reaches that purpose and nothing else (spec 24).
+Route::middleware(['auth:sanctum', \App\Http\Middleware\ConfineScopedTokens::class])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
@@ -75,6 +77,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/circles/{circle}/overview', [CircleController::class, 'overview']);
     Route::post('/circles/{circle}/close', [CircleController::class, 'close']);
     Route::post('/circles/{circle}/archive', [CircleController::class, 'close']);
+    Route::delete('/circles/{circle}', [CircleController::class, 'destroy']);
+    Route::post('/circles/{circle}/restore', [CircleController::class, 'restore']);
 
     // --- Membership --------------------------------------------------------
     Route::get('/circles/{circle}/members', [MembershipController::class, 'index']);
@@ -195,6 +199,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/agent-actions/{action}/reject', [AgentStudioController::class, 'reject']);
     Route::post('/agent-actions/{action}/execute', [AgentStudioController::class, 'execute']);
     Route::get('/agent-tools/catalogue', [AgentStudioController::class, 'catalogue']);
+
+    // --- Meeting transcripts (spec 24) ---------------------------------------
+    // `transcripts.ingest` is the one route a connector token may reach. It is
+    // throttled separately because it is the one an automation calls, and a
+    // misconfigured Zap that loops should hit a wall rather than a bill.
+    Route::middleware('throttle:60,1')
+        ->post('/transcripts', [\App\Http\Controllers\Api\TranscriptController::class, 'store'])
+        ->name('transcripts.ingest');
+    Route::get('/transcripts', [\App\Http\Controllers\Api\TranscriptController::class, 'index']);
+    Route::get('/transcripts/{import}', [\App\Http\Controllers\Api\TranscriptController::class, 'show'])
+        ->name('transcripts.show');
+    Route::post('/transcripts/{import}/retry', [\App\Http\Controllers\Api\TranscriptController::class, 'retry']);
+    Route::post('/circles/{circle}/transcripts', [\App\Http\Controllers\Api\TranscriptController::class, 'storeForCircle']);
+
+    Route::get('/connector-tokens', [\App\Http\Controllers\Api\ConnectorTokenController::class, 'index']);
+    Route::post('/connector-tokens', [\App\Http\Controllers\Api\ConnectorTokenController::class, 'store']);
+    Route::delete('/connector-tokens/{token}', [\App\Http\Controllers\Api\ConnectorTokenController::class, 'destroy']);
 
     // --- Convening from an engagement of terms (spec 23) --------------------
     // The document is ordinary evidence, uploaded through the routes above; all

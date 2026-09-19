@@ -1,0 +1,16 @@
+---
+/**
+ * Meeting transcripts in, and the log of what each changed (spec §24).
+ *
+ * Outside any Circle because a meeting arrives before anyone knows which
+ * Circle it was about — deciding that is half of what this page's pipeline
+ * does.
+ */
+import Base from "../layouts/Base.astro";
+import { TranscriptsView } from "../components/TranscriptsView";
+
+export const prerender = false;
+---
+<Base title="Meetings">
+  <TranscriptsView client:load />
+</Base>

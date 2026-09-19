@@ -11,6 +11,7 @@ use App\Models\Decision;
 use App\Models\DerivedArtifact;
 use App\Models\Organisation;
 use App\Services\Authorisation\AccessGate;
+use App\Services\Circles\CircleDigest;
 use App\Services\Circles\CircleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class CircleController extends Controller
     public function __construct(
         private readonly AccessGate $gate,
         private readonly CircleService $circles,
+        private readonly CircleDigest $digest,
     ) {}
 
     /** Only Circles the user is actually a member of — never org-wide. */
@@ -29,9 +31,25 @@ class CircleController extends Controller
         $circles = $request->user()->circles()
             ->with('owner')
             ->orderByDesc('created_at')
-            ->get();
+            ->get()
+            // A deleted Circle is gone for everyone who was in it. It stays
+            // listed only for whoever could bring it back — to anyone else it
+            // is a name they can no longer open.
+            ->reject(fn (Circle $circle) => $circle->isDeleted()
+                && ! $this->gate->allows($request->user(), Permission::CircleDelete, $circle))
+            ->values();
 
-        return response()->json(['data' => CircleView::collection($circles)]);
+        // The list's own summary of each Circle. Only here, not on the Circle
+        // resource itself: inside a Circle every one of these facts has a
+        // screen of its own, and computing them for every read would be waste.
+        $digest = $this->digest->for($request->user(), $circles);
+
+        return response()->json([
+            'data' => $circles->map(fn (Circle $circle) => array_merge(
+                (new CircleView($circle))->resolve($request),
+                ['digest' => $digest[$circle->id] ?? null],
+            ))->all(),
+        ]);
     }
 
     public function store(Request $request): JsonResponse
@@ -117,6 +135,31 @@ class CircleController extends Controller
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
 
         $circle = $this->circles->close($circle, $request->user(), $data['reason'] ?? null);
+
+        return response()->json(['data' => new CircleView($circle->fresh()->load('owner'))]);
+    }
+
+    /** Deletion is a state; see CircleService::delete(). Nothing is removed. */
+    public function destroy(Request $request, Circle $circle): JsonResponse
+    {
+        $this->gate->authorise($request->user(), Permission::CircleDelete, $circle);
+
+        abort_if($circle->isDeleted(), 409, 'This Circle has already been deleted.');
+
+        $data = $request->validate(['reason' => ['nullable', 'string', 'max:1000']]);
+
+        $circle = $this->circles->delete($circle, $request->user(), $data['reason'] ?? null);
+
+        return response()->json(['data' => new CircleView($circle->fresh()->load('owner'))]);
+    }
+
+    public function restore(Request $request, Circle $circle): JsonResponse
+    {
+        $this->gate->authorise($request->user(), Permission::CircleDelete, $circle);
+
+        abort_unless($circle->isDeleted(), 409, 'This Circle has not been deleted.');
+
+        $circle = $this->circles->restore($circle, $request->user());
 
         return response()->json(['data' => new CircleView($circle->fresh()->load('owner'))]);
     }

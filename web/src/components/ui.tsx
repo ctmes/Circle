@@ -388,3 +388,47 @@ export function useAsync<T>(
 
   return { data, error, loading, refreshing, reload: () => setNonce((n) => n + 1), mutate };
 }
+
+/**
+ * Re-reads what a view is showing when it may have changed somewhere else.
+ *
+ * A view already reloads after its own writes. What it cannot see is a write
+ * made anywhere else while it sits open: the job edited in another tab, a date
+ * another company moved, a node an agent added. Coming back to the tab is the
+ * moment someone expects that to show, so it re-reads then, and it re-reads on
+ * a slow beat while visible for the changes nobody here made.
+ *
+ * A hidden tab never polls. It catches up once, when it is looked at again.
+ * `reload` goes through `useAsync`'s refreshing path, so the view stays on
+ * screen while it is re-read rather than blanking to a skeleton.
+ */
+export function useRevalidate(reload: () => void, everyMs = 30_000): void {
+  // The caller's `reload` is a fresh closure on every render. Reading it from a
+  // ref keeps the listeners and the timer from being torn down and rebuilt each
+  // time the view draws.
+  const latest = useRef(reload);
+  latest.current = reload;
+
+  useEffect(() => {
+    let last = Date.now();
+    const visible = () => document.visibilityState === "visible";
+    const run = () => {
+      last = Date.now();
+      latest.current();
+    };
+
+    // Switching tabs fires both of these, so the second is dropped.
+    const onReturn = () => {
+      if (visible() && Date.now() - last > 2_000) run();
+    };
+    const timer = setInterval(() => visible() && run(), everyMs);
+
+    document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("focus", onReturn);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onReturn);
+      window.removeEventListener("focus", onReturn);
+    };
+  }, [everyMs]);
+}

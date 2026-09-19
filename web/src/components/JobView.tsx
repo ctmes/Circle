@@ -7,11 +7,14 @@ import {
   type Branch,
   type Circle,
   type Goal,
+  type Member,
+  type Party,
 } from "../lib/api";
 import { CircleFrame } from "./CircleFrame";
 import { ClaimsBody } from "./ClaimsView";
 import { CommitmentsBody } from "./CommitmentsView";
 import { DecisionsBody } from "./DecisionsView";
+import { GoalComposer, GoalEditForm, RescheduleForm } from "./GoalForms";
 import { useGoals } from "./GoalPicker";
 import { JobFiles } from "./JobFiles";
 import { Discussion } from "./Thread";
@@ -45,6 +48,10 @@ const SECTIONS = [
 
 type Section = (typeof SECTIONS)[number]["key"];
 
+// Mirrors config('circle.goals.max_depth'), as the Tree does. Only hides a
+// button the API would refuse anyway — the cap itself lives on the server.
+const MAX_DEPTH = 4;
+
 export function JobView({ circleId, goalId }: { circleId: string; goalId: string }) {
   return (
     // No tab is named: a job is not one of the Circle's destinations, it is a
@@ -72,6 +79,20 @@ function Body({
     [goalId],
   );
 
+  // Who the work can be given to, for the edit and sub-job forms. `/members`
+  // answers with { members, pending_invitations, agents }, not a bare list.
+  const { data: parties } = useAsync<Party[]>(
+    () => api.get<{ data: Party[] }>(`/circles/${circleId}/parties`).then((r) => r.data),
+    [circleId],
+  );
+  const { data: members } = useAsync<Member[]>(
+    () =>
+      api
+        .get<{ data: { members: Member[] } }>(`/circles/${circleId}/members`)
+        .then((r) => r.data.members),
+    [circleId],
+  );
+
   const perms = circle?.my_access?.permissions ?? [];
   const closed = circle?.is_closed === true;
   const may = (p: string) => perms.includes(p) && !closed;
@@ -88,7 +109,16 @@ function Body({
 
   return (
     <div className="space-y-5">
-      <Header circleId={circleId} goal={goal} canAccept={may("goal.accept")} onChanged={reload} />
+      <Header
+        circleId={circleId}
+        goal={goal}
+        parties={parties ?? []}
+        members={members ?? []}
+        canAccept={may("goal.accept")}
+        canUpdate={may("goal.update")}
+        canCreate={may("goal.create")}
+        onChanged={reload}
+      />
 
       <nav className="flex flex-wrap gap-1 border-b border-[var(--rule)]" aria-label="Job sections">
         {SECTIONS.map((s) => (
@@ -159,16 +189,38 @@ function Body({
 function Header({
   circleId,
   goal,
+  parties,
+  members,
   canAccept,
+  canUpdate,
+  canCreate,
   onChanged,
 }: {
   circleId: string;
   goal: Goal;
+  parties: Party[];
+  members: Member[];
   canAccept: boolean;
+  canUpdate: boolean;
+  canCreate: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // One form open at a time: each of them rewrites part of this header, and two
+  // open at once would each be editing a goal the other is about to change.
+  const [form, setForm] = useState<"none" | "edit" | "date" | "child">("none");
+
+  const toggle = (f: typeof form) => setForm((cur) => (cur === f ? "none" : f));
+  const closeAndReload = () => {
+    setForm("none");
+    onChanged();
+  };
+
+  // Accepted work is a statement about what was done, and changing what it
+  // was, or when it was due, after the sign-off would rewrite that statement.
+  const editable = canUpdate && !goal.accepted_at;
+  const atDepthLimit = goal.depth >= MAX_DEPTH - 1;
 
   return (
     <div className="space-y-3">
@@ -266,6 +318,63 @@ function Header({
         <p className="text-[0.8125rem] text-[var(--settled)]">
           Accepted by {goal.accepted_by ?? "—"} · {formatDate(goal.accepted_at, true)}
         </p>
+      )}
+
+      {(editable || canCreate) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {editable && (
+            <Button variant="quiet" onClick={() => toggle("edit")}>
+              {form === "edit" ? "Cancel" : "Edit"}
+            </Button>
+          )}
+          {editable && (
+            <Button variant="quiet" onClick={() => toggle("date")}>
+              {form === "date" ? "Cancel" : "Move date"}
+            </Button>
+          )}
+          {canCreate && !atDepthLimit && (
+            <Button variant="quiet" onClick={() => toggle("child")}>
+              {form === "child" ? "Cancel" : "Add sub-job"}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {canCreate && atDepthLimit && (
+        <p className="text-xs text-[var(--ink-faint)]">
+          This is as deep as the plan goes. Anything smaller belongs in a commitment, under
+          Record.
+        </p>
+      )}
+
+      {form === "edit" && (
+        <GoalEditForm
+          goal={goal}
+          parties={parties}
+          members={members}
+          onDone={closeAndReload}
+          onCancel={() => setForm("none")}
+        />
+      )}
+
+      {form === "date" && (
+        <RescheduleForm
+          goal={goal}
+          parties={parties}
+          onDone={closeAndReload}
+          onCancel={() => setForm("none")}
+        />
+      )}
+
+      {form === "child" && (
+        <GoalComposer
+          circleId={circleId}
+          parentId={goal.id}
+          parties={parties}
+          members={members}
+          onDone={closeAndReload}
+          onCancel={() => setForm("none")}
+        />
       )}
 
       {!!error && <ErrorNote error={error} />}

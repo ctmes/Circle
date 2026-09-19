@@ -68,8 +68,43 @@ class CreateGoalTool extends BaseTool
                     'description' => 'What has to be true for this to be accepted as done. State it so a reviewer could check it.',
                 ],
                 'due_at' => ['type' => 'string', 'description' => 'ISO 8601 date.'],
+                'responsible_party_id' => [
+                    'type'        => 'string',
+                    'description' => 'The party answerable for this. Honoured only for the agents that ship with Circle; '
+                        . 'an authored agent always creates work under the party it acts for.',
+                ],
             ],
         ];
+    }
+
+    /**
+     * Who answers for the new goal.
+     *
+     * For an agent a customer wrote, always the party it acts for — the rule
+     * this tool has had since it was written, because an agent that could name
+     * any party could hand work to a company that never agreed to it.
+     *
+     * The agents Circle ships are not acting for one company. The Scribe reads
+     * a meeting in which "Northline will issue the traffic plan" was said out
+     * loud, and assigning that to the party that said it is reading the room,
+     * not volunteering somebody. It may name any party in this Circle, by id,
+     * and an id from anywhere else is refused.
+     */
+    private function responsibleParty(AgentAction $action): ?string
+    {
+        $named = $this->arg($action, 'responsible_party_id');
+
+        if ($named === null || $named === '' || ! $this->agent($action)->blueprint?->is_system) {
+            return $action->on_behalf_of_party_id;
+        }
+
+        $party = \App\Models\CircleParty::where('circle_id', $this->circle($action)->id)->find($named);
+
+        if ($party === null) {
+            throw new \RuntimeException(sprintf('No party %s in this Circle.', $named));
+        }
+
+        return $party->id;
     }
 
     public function handle(AgentAction $action): array
@@ -105,7 +140,9 @@ class CreateGoalTool extends BaseTool
             }
         }
 
-        return DB::transaction(function () use ($circle, $agent, $action, $title, $parent) {
+        $party = $this->responsibleParty($action);
+
+        return DB::transaction(function () use ($circle, $agent, $action, $title, $parent, $party) {
             $goal = Goal::create([
                 'circle_id'            => $circle->id,
                 'parent_goal_id'       => $parent?->id,
@@ -113,7 +150,7 @@ class CreateGoalTool extends BaseTool
                 'description'          => $this->arg($action, 'description'),
                 'status'               => GoalStatus::Active,
                 'owner_user_id'        => null,
-                'responsible_party_id' => $action->on_behalf_of_party_id,
+                'responsible_party_id' => $party,
                 'acceptance_condition' => $this->arg($action, 'acceptance_condition'),
                 'due_at'               => $this->dateArg($action, 'due_at'),
                 'position'             => (int) Goal::where('circle_id', $circle->id)
@@ -128,7 +165,7 @@ class CreateGoalTool extends BaseTool
                 'goal', $goal->id, metadata: [
                     'title'             => $title,
                     'parent_goal_id'    => $parent?->id,
-                    'responsible_party' => $action->onBehalfOfParty?->label(),
+                    'responsible_party' => $party === null ? null : \App\Models\CircleParty::find($party)?->label(),
                     'due_at'            => $goal->due_at?->format(DATE_ATOM),
                     'agent_action'      => $action->id,
                     'approved_by'       => $action->approved_by_user_id,

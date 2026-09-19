@@ -18,7 +18,17 @@ import { GoalTree } from "./GoalTree";
 import { useJobDrop } from "./JobDrop";
 import { Discussion } from "./Thread";
 import { CircleFrame } from "./CircleFrame";
-import { Button, Empty, ErrorNote, Loading, Meta, Panel, inputClass, useAsync } from "./ui";
+import {
+  Button,
+  Empty,
+  ErrorNote,
+  Loading,
+  Meta,
+  Panel,
+  inputClass,
+  useAsync,
+  useRevalidate,
+} from "./ui";
 
 /**
  * The main screen: the branch diagram, and everything that hangs off it.
@@ -75,6 +85,20 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
     [circleId],
   );
 
+  /*
+    The plan changes from places this page never hears about — the job's own
+    screen in another tab, the Tree, another company, an agent — so it is
+    re-read rather than trusted from the first load. The strip and the worklist
+    come with it: a diagram that has moved on while "waiting on you" has not is
+    a page contradicting itself.
+  */
+  useRevalidate(() => {
+    goals.reload();
+    overview.reload();
+    inbox.reload();
+    queue.reload();
+  });
+
   const tree = goals.data ?? [];
   const node = useMemo(() => findGoal(tree, selected), [tree, selected]);
 
@@ -95,7 +119,9 @@ function Body({ circleId, circle }: { circleId: string; circle: Circle | null })
       </Panel>
     );
   }
-  if (goals.error) return <ErrorNote error={goals.error} />;
+  // Only a failure with nothing to show stops the page. A background re-read
+  // that fails keeps the plan it already has rather than trading it for an error.
+  if (goals.error && !goals.data) return <ErrorNote error={goals.error} />;
 
   return (
     <div className="space-y-4">

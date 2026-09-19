@@ -59,6 +59,12 @@ class AppServiceProvider extends ServiceProvider
             $app->make(ReportGoalProgressTool::class),
             $app->make(CreateCommitmentTool::class),
             $app->make(FlagEvidenceStaleTool::class),
+            // The three that let a transcript keep the plan current (spec 24).
+            // All circle_write, so an autonomous agent may run them unattended
+            // and no configuration can extend that past the Circle's walls.
+            $app->make(\App\Services\Agent\Tools\UpdateGoalTool::class),
+            $app->make(\App\Services\Agent\Tools\CompleteGoalTool::class),
+            $app->make(\App\Services\Agent\Tools\AbandonGoalTool::class),
         ]));
 
         $this->app->singleton(Transcriber::class, function () {

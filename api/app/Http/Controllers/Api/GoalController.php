@@ -71,7 +71,16 @@ class GoalController extends Controller
             'scheduleChanges.changedBy', 'scheduleChanges.requiresParty',
         ]);
 
-        return response()->json(['data' => $this->present($goal, withChildren: true, withDetail: true)]);
+        // The real depth rather than the presenter's default of zero: a job
+        // opened on its own page decides from this whether it can take a
+        // sub-job, and a leaf at the cap reporting itself as a root offers a
+        // button the API then refuses.
+        return response()->json(['data' => $this->present(
+            $goal,
+            withChildren: true,
+            withDetail: true,
+            depth: $this->goals->depthOf($goal),
+        )]);
     }
 
     public function store(Request $request, Circle $circle): JsonResponse

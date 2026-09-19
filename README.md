@@ -87,7 +87,7 @@ the bytes as shipped and the digest the Circle recorded at upload. **81 checks.*
 ### Tests
 
 ```bash
-docker compose run --rm api php artisan test    # 282 feature tests
+docker compose run --rm api php artisan test    # 320 feature tests
 cd web && npx astro check                       # typecheck
 cd web && node verify-contract.mjs              # 128 API/UI contract checks
 cd web && node screenshot.mjs                   # drives every view in a browser
@@ -429,6 +429,96 @@ written.
 
 ---
 
+## Meetings keep it current
+
+A contract says what the work is at the start. Meetings say what happened to it
+after. Send a meeting transcript in — pasted on the Meetings page, or pushed by
+a note-taker — and the Circle it was about is updated with nobody approving each
+change: work agreed is added, work reported done is closed, work dropped is
+abandoned, dates that moved are moved.
+
+That reverses the rule every other agent here follows, so it is reversed
+narrowly.
+
+**Autonomy stops at the Circle's walls.** `agent_blueprints.autonomous` lets an
+agent's actions be approved by policy when proposed. It is on for one agent —
+the **Circle Scribe** — and off for everything else, including every agent a
+customer writes. It reaches `circle_write` actions only:
+`SideEffect::mayRunAutonomously()` is consulted on every proposal, so an
+autonomous agent proposing an email or anything financial still waits for a
+person, whatever its blueprint says.
+
+**Autonomy removed the approval, not the ledger.** Every change is an
+`agent_actions` row with its intent, arguments, result and a quotation from the
+meeting. The Meetings page reads that back: where each meeting went and why,
+what it changed line by line, and what it heard but chose not to act on.
+
+**Closing is not accepting, and dropping is not deleting.** A goal a meeting
+closes is `met` and settled, but `accepted_by_user_id` stays empty — no person
+accepted it — and `completed_by_agent_run_id` names the reading that did.
+"Delete" is `abandon_goal`: the goal leaves the live plan and stays in the
+record, the open work beneath it goes with it, and commitments still counting
+down under it are cancelled. A moved date is a schedule change attributed to the
+agent, never to whoever owns the connector.
+
+**The model reads, the application counts** — the same rule as convening. "Push
+it back a week" comes back as `shift: {value: 1, unit: weeks}`; `WorkingCalendar`
+turns it into a date. Operations name goals by the ids they were shown, or by a
+label an earlier operation in the same meeting created. Each operation type is
+its own schema variant with its own required fields: the first version was one
+object with fourteen optional properties, and a live model filled it with
+`"placeholder"`.
+
+**Discussion is not decision.** The Scribe acts on what was agreed, reported
+as fact, or taken on by someone, and says in the log what it heard and left
+alone. On its first live run it declined to create a second crane pad that one
+person floated and another said not to decide.
+
+**Where a meeting goes.** A transcript is addressed to a company. The router
+picks an existing Circle, convenes a new one, or sets it aside — the third
+answer is what stops a Circle being opened for every one-to-one. It runs on
+Haiku 4.5 because it is a classification over a short list, and not at all when
+there is nothing to choose between. A kickoff is convened with the meeting's
+date as the anchor, so "within three weeks" means three weeks from the meeting.
+
+**The connector is write-only.** A connector token carries `transcripts:ingest`
+and one company's id, and `ConfineScopedTokens` refuses it on every route but
+the one that takes a transcript. It cannot read a Circle, the log, or what its
+own transcripts changed, because it lives in somebody's Zapier account from
+then on. Its transcripts run under the name of the person who created it.
+
+Wiring Granola, Otter or Fireflies is a Zapier or Make step — "when a note is
+ready, send a webhook" — posting to `/api/transcripts`:
+
+```json
+{
+  "transcript":  "<the transcript text>",
+  "title":       "<the meeting title>",
+  "occurred_at": "<the meeting date>",
+  "external_id": "<the note's id>",
+  "source":      "granola"
+}
+```
+
+`external_id` matters: automations retry, and it is how a meeting sent twice is
+applied once.
+
+A weekly meeting costs about two cents (Haiku routing, Sonnet reading); a
+kickoff that opens a Circle about five, including the Steward's brief.
+
+### What meetings do not do
+
+- **No note-taker is integrated directly.** None share a webhook format, so the
+  endpoint takes a transcript and an automation service sits in between.
+- **No decisions are drafted.** A meeting's loose ends go in the log, not into
+  draft decisions nobody owns.
+- **Nothing is notified.** A goal closed by a meeting tells nobody yet.
+- **No undo.** Every change is on the ledger and reversible by hand; there is no
+  "revert this meeting", because later meetings build on earlier ones.
+- **Speakers are not verified.** "Northline signed it off" is taken as said.
+
+---
+
 ## Finding the counterparty
 
 Everything above assumes you already know who you are working with. Section 21
@@ -542,6 +632,7 @@ api/                     Laravel 12 · PHP 8.4
     Agent/               AgentRunner, retrieval guard, prompts, the action ledger
       Tools/             ToolRegistry and the handlers that actually do things
     Convening/           reading an engagement of terms into a proposed plan
+    Transcripts/         meetings in: routing, the Scribe, the import log
     Work/                openings, applications, engagements, records, packages
     Ai/                  provider interface + Anthropic implementation
     Exports/             the mission packet
@@ -590,11 +681,13 @@ agent builder, no autonomous external communication or source-system writes, no
 Drive/SharePoint/email/Zoho/GitHub/Linear connectors, no verifiable credentials
 or blockchain, no enterprise SSO/SCIM/billing, no nested-organisation RBAC.
 
-Four of those have since been reversed deliberately and are recorded as such in
+Five of those have since been reversed deliberately and are recorded as such in
 the spec rather than quietly dropped: §20.4 reverses "no general agent builder",
 §21 reverses the implicit assumption that both parties already know each other,
-§22 reverses §20.3's refusal of a Circle-wide room, and §23 reverses the
-assumption running through §1-19 that a plan is always typed in by hand. What §21 does *not*
+§22 reverses §20.3's refusal of a Circle-wide room, §23 reverses the
+assumption running through §1-19 that a plan is always typed in by hand, and
+§24 reverses "an agent proposes and a person approves" — for in-Circle writes,
+for one agent, and nothing further. What §21 does *not*
 reverse is the gate: an opening is the single object reachable without a Circle,
 and it is bounded by its own columns.
 

@@ -385,6 +385,7 @@ class AnthropicProviderTest extends TestCase
             'convening' => \App\Services\Convening\ConveningSchema::build(),
             'brief'     => \App\Services\Agent\OutputSchema::build(),
             'authored'  => \App\Services\Agent\OutputSchema::build($tools),
+            'transcript' => \App\Services\Transcripts\TranscriptSchema::build(),
         ] as $name => $schema) {
             $optional = \App\Services\Ai\StructuredSchema::countOptional($schema);
 

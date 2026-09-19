@@ -31,10 +31,17 @@ class AgentBlueprint extends Model
      */
     public const CONVENER = 'circle_convener';
 
+    /**
+     * The agent that reads meeting transcripts and keeps the plan current
+     * (spec §24). Execute mode and autonomous: its in-Circle writes run as
+     * soon as they are proposed, and each one is on the ledger regardless.
+     */
+    public const SCRIBE = 'circle_scribe';
+
     protected $fillable = [
         'key', 'organisation_id', 'circle_id', 'created_by_user_id', 'is_system',
         'execution_mode', 'provider', 'status', 'name', 'mandate', 'instructions',
-        'version', 'allowed_actions', 'prohibited_actions', 'prompt_version',
+        'version', 'allowed_actions', 'prohibited_actions', 'prompt_version', 'autonomous',
     ];
 
     protected function casts(): array
@@ -43,6 +50,7 @@ class AgentBlueprint extends Model
             'allowed_actions'    => 'array',
             'prohibited_actions' => 'array',
             'is_system'          => 'boolean',
+            'autonomous'         => 'boolean',
             'execution_mode'     => AgentExecutionMode::class,
         ];
     }

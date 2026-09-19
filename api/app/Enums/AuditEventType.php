@@ -170,6 +170,12 @@ enum AuditEventType: string
     case CircleConvened     = 'circle.convened';
     case CirclePlanAccepted = 'circle.plan_accepted';
 
+    // Meeting transcripts (spec 24). Recorded on the Circle the meeting landed
+    // in, by the agent that applied it, with the import and the person whose
+    // connector sent it — so "why did this goal close on Tuesday" answers
+    // with a meeting, a quotation and a name.
+    case TranscriptApplied = 'transcript.applied';
+
     case ExportCreated = 'export.created';
     case AccessDenied  = 'access.denied';
 }

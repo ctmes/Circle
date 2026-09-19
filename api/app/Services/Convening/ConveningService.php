@@ -87,8 +87,19 @@ class ConveningService
         array $lookFor = [],
         bool $apply = true,
         bool $brief = true,
+        /**
+         * Text the caller already holds, keyed by evidence item id — a meeting
+         * transcript that has just been filed (spec 24). Read through the
+         * gate like anything else, but without waiting on an extraction job
+         * for words that arrived a moment ago.
+         *
+         * @var array<string, string>
+         */
+        array $suppliedText = [],
+        /** Where periods are measured from if the document names no start — a meeting's date. */
+        ?\DateTimeInterface $fallbackAnchor = null,
     ): array {
-        $artifact = $this->propose($circle, $actor, $evidenceItemIds, $lookFor);
+        $artifact = $this->propose($circle, $actor, $evidenceItemIds, $lookFor, $suppliedText, $fallbackAnchor);
 
         $blockedBy = $apply ? $this->blockedFrom($actor, $circle) : 'not requested';
 
@@ -123,6 +134,8 @@ class ConveningService
         User $actor,
         array $evidenceItemIds = [],
         array $lookFor = [],
+        array $suppliedText = [],
+        ?\DateTimeInterface $fallbackAnchor = null,
     ): DerivedArtifact {
         $this->gate->authorise($actor, Permission::AgentRun, $circle);
 
@@ -161,9 +174,13 @@ class ConveningService
         );
 
         try {
-            ['sources' => $sources, 'manifest' => $manifest] = $this->retrieval->gather(
-                $agent, $circle, $run, $evidenceItemIds === [] ? null : $evidenceItemIds,
-            );
+            ['sources' => $sources, 'manifest' => $manifest] = $suppliedText !== []
+                ? $this->retrieval->gatherText($agent, $circle, $run, $suppliedText)
+                : $this->retrieval->gather(
+                    $agent, $circle, $run,
+                    $evidenceItemIds === [] ? null : $evidenceItemIds,
+                    $this->charsPerDocument($evidenceItemIds),
+                );
 
             $run->forceFill(['retrieval_manifest_json' => $manifest])->save();
 
@@ -180,7 +197,7 @@ class ConveningService
                 $this->prompt->outputSchema(),
             );
 
-            $plan = $this->resolver->resolve($result->data, $sources);
+            $plan = $this->resolver->resolve($result->data, $sources, fallback: $fallbackAnchor);
 
             $artifact = DerivedArtifact::create([
                 'circle_id'            => $circle->id,
@@ -322,12 +339,13 @@ class ConveningService
 
         $content     = $artifact->content_json ?? [];
         $sourceNames = array_column($content['sources'] ?? [], 'name');
+        $stepSources = $this->sourceOfEachStep($content);
         $sourceItems = EvidenceItem::with('resource')
             ->whereIn('id', array_column($content['sources'] ?? [], 'evidence_item_id'))
             ->get();
 
         return DB::transaction(function () use (
-            $circle, $actor, $artifact, $payload, $sourceNames, $sourceItems
+            $circle, $actor, $artifact, $payload, $sourceNames, $stepSources, $sourceItems
         ) {
             $concluded = $this->date($payload['expires_at'] ?? null);
 
@@ -359,7 +377,7 @@ class ConveningService
             $parties = $this->createParties($circle, $actor, $payload['parties'] ?? []);
 
             ['count' => $goalCount, 'by_key' => $byKey, 'filings' => $filings] = $this->createGoals(
-                $circle, $actor, $payload['steps'] ?? [], $parties, $sourceNames, $sourceItems,
+                $circle, $actor, $payload['steps'] ?? [], $parties, $stepSources, $sourceItems,
             );
 
             $commitments = $this->createCommitments(
@@ -417,6 +435,33 @@ class ConveningService
             ['agent_blueprint_id' => $blueprint->id, 'circle_id' => $circle->id],
             ['status' => 'active'],
         )->load('blueprint');
+    }
+
+    /**
+     * How much of each named document the Convener is shown.
+     *
+     * The per-source cap is sized for the Steward, which fits up to forty
+     * documents into one prompt. Convening reads the contract it was pointed
+     * at, and at that cap a nine-page engagement of terms was cut at page five
+     * — the liability, IP and data-handling sections never reached the model,
+     * which could then only ask whether they existed. The task's budget is
+     * split across the documents named instead, never below the default cap.
+     *
+     * Unscoped, convening reads every agent-readable document in the Circle,
+     * which is the case the default cap exists for, so it keeps it.
+     *
+     * @param  list<string>  $evidenceItemIds
+     */
+    private function charsPerDocument(array $evidenceItemIds): ?int
+    {
+        if ($evidenceItemIds === []) {
+            return null;
+        }
+
+        return max(
+            (int) config('circle.agent.max_chars_per_source'),
+            intdiv((int) config('circle.agent.tasks.convening.max_chars'), count(array_unique($evidenceItemIds))),
+        );
     }
 
     // ------------------------------------------------------------- payload
@@ -564,6 +609,7 @@ class ConveningService
     /**
      * @param  list<array<string, mixed>>  $steps  Flat, each naming its parent's key.
      * @param  array<string, CircleParty>  $parties
+     * @param  array<string, string>  $stepSources  Document name by step key.
      * @param  \Illuminate\Support\Collection<int, EvidenceItem>  $sourceItems
      * @return array{count: int, by_key: array<string, Goal>, filings: int}
      */
@@ -572,7 +618,7 @@ class ConveningService
         User $actor,
         array $steps,
         array $parties,
-        array $sourceNames,
+        array $stepSources,
         $sourceItems,
     ): array {
         /** @var array<string, Goal> $byKey */
@@ -599,7 +645,7 @@ class ConveningService
                 circle: $circle,
                 creator: $actor,
                 title: $title,
-                description: $this->describe($step, $sourceNames),
+                description: $this->describe($step, $stepSources[$step['key'] ?? ''] ?? null),
                 parent: $parent,
                 owner: null,
                 responsibleParty: $parties[$step['responsible_party_key'] ?? ''] ?? null,
@@ -725,11 +771,14 @@ class ConveningService
                 circle: $circle,
                 creator: $actor,
                 title: mb_substr($title, 0, 255),
+                // Every document is named: an open question is about what the
+                // whole set leaves unsettled, not about the first file read.
                 description: trim(
                     ($why ?? '')
                     . "\n\n[Raised while convening from "
-                    . ($sourceNames === [] ? 'an uploaded document' : $sourceNames[0])
-                    . '. The document does not settle it. Name who decides.]',
+                    . ($sourceNames === [] ? 'an uploaded document' : implode(', ', $sourceNames))
+                    . (count($sourceNames) > 1 ? '. The documents do not settle it.' : '. The document does not settle it.')
+                    . ' Name who decides.]',
                 ),
                 // No approver, so this stays a draft. Naming one is the act
                 // that makes it somebody's, and nothing here may do that on a
@@ -752,7 +801,7 @@ class ConveningService
      * actually uses: it is what they type into the search box of the PDF when
      * they want to check the plan against what they signed.
      */
-    private function describe(array $step, array $sourceNames): ?string
+    private function describe(array $step, ?string $source): ?string
     {
         $description = $this->trimmedOrNull($step['description'] ?? null);
         $clause      = $this->trimmedOrNull($step['clause'] ?? null);
@@ -761,9 +810,44 @@ class ConveningService
             return $description;
         }
 
-        $reference = '[' . $clause . ($sourceNames === [] ? '' : ', ' . $sourceNames[0]) . ']';
+        $reference = '[' . $clause . ($source === null ? '' : ', ' . $source) . ']';
 
         return $description === null ? $reference : $description . "\n\n" . $reference;
+    }
+
+    /**
+     * Which document each step was read from, by step key.
+     *
+     * One document answers for every step, cited or not, as it always has.
+     * With several, a step is named after the document its citation points
+     * at, and an uncited step after none: a clause number pinned to the wrong
+     * file sends somebody searching a PDF that does not contain it, while a
+     * bare "[cl 4.3]" at least tells them to look.
+     *
+     * @return array<string, string>
+     */
+    private function sourceOfEachStep(array $content): array
+    {
+        $sources = $content['sources'] ?? [];
+        $names   = array_column($sources, 'name', 'evidence_version_id');
+        $only    = count($sources) === 1 ? $sources[0]['name'] : null;
+        $byStep  = [];
+
+        $walk = function (array $nodes) use (&$walk, &$byStep, $names, $only): void {
+            foreach ($nodes as $node) {
+                $name = $only ?? ($names[$node['citation']['evidence_version_id'] ?? ''] ?? null);
+
+                if ($name !== null && isset($node['key'])) {
+                    $byStep[$node['key']] = $name;
+                }
+
+                $walk($node['children'] ?? []);
+            }
+        };
+
+        $walk($content['plan']['plan'] ?? []);
+
+        return $byStep;
     }
 
     private function trimmedOrNull(mixed $value): ?string

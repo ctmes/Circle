@@ -19,6 +19,7 @@ use App\Services\Ai\AiProvider;
 use App\Services\Authorisation\AccessGate;
 use App\Services\Convening\ConveningPrompt;
 use App\Services\Convening\ConveningService;
+use App\Services\Goals\GoalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\Support\BuildsCircles;
@@ -185,6 +186,45 @@ class ConveningTest extends TestCase
         $this->expectExceptionMessage('No readable document was available.');
 
         app(ConveningService::class)->propose($circle, $owner, [$document->id]);
+    }
+
+    /**
+     * The Steward's per-source cap is sized for forty documents. Applied here it
+     * cut a nine-page contract at page five, and the model could only ask
+     * whether the liability clauses it never saw existed.
+     */
+    public function test_it_reads_a_named_contract_past_the_stewards_per_source_cap(): void
+    {
+        config(['circle.agent.max_chars_per_source' => 50]);
+
+        [$owner, $circle, $document] = $this->scenario();
+
+        $this->ai->setResponse($this->reading());
+
+        app(ConveningService::class)->propose($circle, $owner, [$document->id]);
+
+        // Clause 4.3 is the last line of the document.
+        $this->assertStringContainsString('4.3 The Supplier shall deliver', $this->ai->lastUserPrompt);
+        $this->assertStringNotContainsString('NOTE: truncated', $this->ai->lastUserPrompt);
+    }
+
+    public function test_the_budget_is_shared_across_named_documents_and_what_it_cuts_is_flagged(): void
+    {
+        config([
+            'circle.agent.max_chars_per_source'      => 20,
+            'circle.agent.tasks.convening.max_chars' => 120,
+        ]);
+
+        [$owner, $circle, $document] = $this->scenario();
+        $rates = $this->makeEvidence($circle, $owner, 'Schedule of rates', agentRead: true,
+            extractedText: str_repeat('Rate per mat per week. ', 20));
+
+        $this->ai->setResponse($this->reading());
+
+        app(ConveningService::class)->propose($circle, $owner, [$document->id, $rates->id]);
+
+        $this->assertStringContainsString('NOTE: truncated — showing 60 of', $this->ai->lastUserPrompt);
+        $this->assertStringNotContainsString('4.3 The Supplier shall deliver', $this->ai->lastUserPrompt);
     }
 
     /**
@@ -729,6 +769,54 @@ class ConveningTest extends TestCase
     }
 
     /**
+     * A reading never fills the tree to its cap.
+     *
+     * A plan read to the full depth left every one of its leaves at the cap, so
+     * the first thing anybody tried — breaking a convened deliverable down into
+     * the work it takes — was refused on every row the machine wrote. One level
+     * is kept back for people, and the deepest convened job then takes a
+     * sub-job and an edit exactly as one somebody typed would.
+     */
+    public function test_a_convened_plan_leaves_a_level_free_for_people(): void
+    {
+        [$owner, $circle, $document] = $this->scenario();
+
+        $cap = GoalService::maxDepth();
+
+        $this->ai->setResponse($this->reading(['plan' => array_map(
+            fn (int $level) => ['level' => $level, 'title' => "Level {$level} work", 'basis' => 'stated'],
+            range(1, $cap),
+        )]));
+
+        Sanctum::actingAs($owner);
+
+        $this->postJson("/api/circles/{$circle->id}/convening", [
+            'evidence_item_ids' => [$document->id],
+            'brief'             => false,
+        ])->assertCreated()->assertJsonPath('data.applied', true);
+
+        $deepest = Goal::where('circle_id', $circle->id)->where('title', "Level {$cap} work")->firstOrFail();
+
+        // Raised one short of the cap, and the job page is told where it sits.
+        $this->getJson("/api/goals/{$deepest->id}")
+            ->assertOk()
+            ->assertJsonPath('data.depth', $cap - 2);
+
+        $child = $this->postJson("/api/circles/{$circle->id}/goals", [
+            'title'          => 'Matting laid out on the compound plan',
+            'parent_goal_id' => $deepest->id,
+        ])->assertCreated()->json('data.id');
+
+        $this->getJson("/api/goals/{$child}")
+            ->assertOk()
+            ->assertJsonPath('data.depth', $cap - 1);
+
+        $this->patchJson("/api/goals/{$deepest->id}", ['title' => 'Matting delivered and laid'])
+            ->assertOk()
+            ->assertJsonPath('data.title', 'Matting delivered and laid');
+    }
+
+    /**
      * A deliverable is a leaf with a date. Both halves are structural, so both
      * are decided in PHP rather than asked of the model.
      */
@@ -788,6 +876,53 @@ class ConveningTest extends TestCase
                 "The contract should be filed against “{$goal->title}”.",
             );
         }
+    }
+
+    /**
+     * A contract and its schedule convened together. A clause reference names
+     * the document its step was cited from, never just the first one read.
+     */
+    public function test_several_documents_are_named_where_each_step_came_from(): void
+    {
+        [$owner, $circle, $document] = $this->scenario();
+        $schedule = $this->makeEvidence($circle, $owner, 'Schedule 2 — rates', agentRead: true,
+            extractedText: 'S2.1 Matting is hired at $40 per mat per week.');
+
+        $this->ai->setResponse($this->reading([
+            'plan' => [
+                [
+                    'level'    => 1,
+                    'title'    => 'Hire rates agreed',
+                    'clause'   => 'S2.1',
+                    'basis'    => 'stated',
+                    'citation' => [
+                        'evidence_version_id' => $schedule->currentVersion()->id,
+                        'excerpt'             => 'Matting is hired at $40 per mat per week.',
+                    ],
+                ],
+                ['level' => 1, 'title' => 'Access matting delivered', 'clause' => 'cl 4.3', 'basis' => 'stated'],
+            ],
+        ]));
+
+        Sanctum::actingAs($owner);
+
+        $this->postJson("/api/circles/{$circle->id}/convening", [
+            'evidence_item_ids' => [$document->id, $schedule->id],
+            'brief'             => false,
+        ])->assertCreated()->assertJsonPath('data.created.goals', 2);
+
+        $this->assertStringEndsWith(
+            '[S2.1, Schedule 2 — rates]',
+            Goal::where('title', 'Hire rates agreed')->value('description'),
+        );
+
+        // Uncited, so it names no document rather than guessing the first one.
+        $this->assertSame('[cl 4.3]', Goal::where('title', 'Access matting delivered')->value('description'));
+
+        $this->assertStringContainsString(
+            'convening from Subcontract — Bay Junction rail access, Schedule 2 — rates. The documents do not settle it.',
+            Decision::where('circle_id', $circle->id)->value('description'),
+        );
     }
 
     public function test_open_questions_become_draft_decisions_nobody_owns_yet(): void

@@ -57,6 +57,18 @@ final class StructuredSchema
     {
         $count = 0;
 
+        // A union costs what all of its branches cost: the compiler builds a
+        // grammar for every variant, whichever one the model ends up choosing.
+        if (is_array($schema['anyOf'] ?? null)) {
+            foreach ($schema['anyOf'] as $branch) {
+                if (is_array($branch)) {
+                    $count += self::countOptional($branch);
+                }
+            }
+
+            return $count;
+        }
+
         if (($schema['type'] ?? null) === 'object' && is_array($schema['properties'] ?? null)) {
             $required = is_array($schema['required'] ?? null) ? $schema['required'] : [];
 

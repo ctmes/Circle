@@ -44,12 +44,20 @@ class AgentRetrieval
      *         through the gate, and one that is not agent-readable is still
      *         refused. Convening uses it so that reading a contract does not
      *         sweep in every other document in the Circle (spec 23).
+     * @param  int|null  $maxCharsPerDoc  Overrides `circle.agent.max_chars_per_source`
+     *         for a caller reading a few documents rather than the whole
+     *         Circle, where the default cap cuts off the document it came for.
      * @return array{sources: list<array>, manifest: array}
      */
-    public function gather(AgentInstance $agent, Circle $circle, AgentRun $run, ?array $onlyItemIds = null): array
-    {
+    public function gather(
+        AgentInstance $agent,
+        Circle $circle,
+        AgentRun $run,
+        ?array $onlyItemIds = null,
+        ?int $maxCharsPerDoc = null,
+    ): array {
         $maxSources     = (int) config('circle.agent.max_sources');
-        $maxCharsPerDoc = (int) config('circle.agent.max_chars_per_source');
+        $maxCharsPerDoc ??= (int) config('circle.agent.max_chars_per_source');
 
         $items = EvidenceItem::query()
             ->whereHas('resource', fn ($q) => $q->where('circle_id', $circle->id))
@@ -210,6 +218,111 @@ class AgentRetrieval
             'page_index' => $pageIndex,
             'segments'   => $segments,
         ];
+    }
+
+    /**
+     * Sources for documents whose text the caller already holds (spec §24).
+     *
+     * A transcript arrives as text. Filing it goes through the ordinary vault
+     * pipeline — stored, hashed, extracted in the background — but the agent
+     * that was sent it for reading does not need to wait on an extraction job
+     * to hand back the words it was given a moment ago.
+     *
+     * What it does not skip is the gate. This is still the only path by which
+     * an agent sees Circle content: every item is inspected individually,
+     * refusals are recorded alongside retrievals, and an item whose hash has
+     * not been verified is refused, exactly as gather() refuses it. Only the
+     * extraction step is replaced, and only by the text the caller filed.
+     *
+     * @param  array<string, string>  $textByItemId
+     * @return array{sources: list<array>, manifest: array}
+     */
+    public function gatherText(AgentInstance $agent, Circle $circle, AgentRun $run, array $textByItemId): array
+    {
+        $maxChars = (int) config('circle.agent.max_chars_per_transcript', 60000);
+
+        $items = EvidenceItem::query()
+            ->whereIn('id', array_keys($textByItemId))
+            ->whereHas('resource', fn ($q) => $q->where('circle_id', $circle->id))
+            ->with(['resource', 'versions', 'uploader'])
+            ->get();
+
+        $sources  = [];
+        $manifest = [
+            'circle_id'       => $circle->id,
+            'supplied_text'   => true,
+            'considered'      => $items->count(),
+            'retrieved'       => 0,
+            'denied'          => 0,
+            'items'           => [],
+            'max_chars'       => $maxChars,
+        ];
+
+        foreach ($items as $item) {
+            $decision = $this->gate->inspect($agent, Permission::ResourceAgentRead, $circle, $item->resource);
+
+            if (! $decision->allowed) {
+                $this->recordAccess($run, $item, null, permitted: false, reason: $decision->reason);
+                $manifest['denied']++;
+                $manifest['items'][] = [
+                    'evidence_item_id' => $item->id,
+                    'permitted'        => false,
+                    'reason'           => $decision->reason,
+                ];
+
+                continue;
+            }
+
+            $version = $item->currentVersion();
+
+            if ($version === null || $version->processing_status !== ProcessingStatus::Ready) {
+                $this->recordAccess($run, $item, $version?->id, permitted: false, reason: 'version_not_ready');
+                $manifest['denied']++;
+
+                continue;
+            }
+
+            $text      = (string) $textByItemId[$item->id];
+            $truncated = mb_strlen($text) > $maxChars;
+
+            $sources[] = [
+                'evidence_item_id'    => $item->id,
+                'evidence_version_id' => $version->id,
+                'name'                => $item->resource->name,
+                'filename'            => $version->original_filename,
+                'version_number'      => $version->version_number,
+                'mime_type'           => $version->mime_type,
+                'lane'                => $version->lane(),
+                'sha256'              => $version->sha256,
+                'uploaded_by'         => $item->uploader?->name,
+                'uploaded_at'         => $version->created_at?->toISOString(),
+                'origin_status'       => $item->origin_status->value,
+                'integrity_status'    => $version->integrityStatus()->value,
+                'review_status'       => $item->review_status->value,
+                'classification'      => $item->classification->value,
+                'age_days'            => 0,
+                'content'             => [
+                    'text'        => $truncated ? mb_substr($text, 0, $maxChars) : $text,
+                    'truncated'   => $truncated,
+                    'total_chars' => mb_strlen($text),
+                    'sources'     => ['supplied'],
+                    'page_index'  => null,
+                    'segments'    => null,
+                ],
+            ];
+
+            $this->recordAccess($run, $item, $version->id, permitted: true);
+            $manifest['retrieved']++;
+            $manifest['items'][] = [
+                'evidence_item_id'    => $item->id,
+                'evidence_version_id' => $version->id,
+                'sha256'              => $version->sha256,
+                'permitted'           => true,
+                'chars_supplied'      => min(mb_strlen($text), $maxChars),
+            ];
+        }
+
+        return ['sources' => $sources, 'manifest' => $manifest];
     }
 
     private function recordAccess(

@@ -55,6 +55,7 @@ return [
         'effort'        => env('AGENT_EFFORT', 'medium'),
         // Cap on characters of extracted text per evidence version placed in
         // the prompt, so one enormous document cannot crowd out the rest.
+        // Convening a named document uses `tasks.convening.max_chars` instead.
         'max_chars_per_source' => (int) env('AGENT_MAX_CHARS_PER_SOURCE', 12000),
         'max_sources'          => (int) env('AGENT_MAX_SOURCES', 40),
         'timeout_seconds'      => (int) env('AGENT_TIMEOUT_SECONDS', 180),
@@ -86,6 +87,13 @@ return [
         |   check the stated/inferred split on a contract you know well before
         |   you keep it.
         |
+        |   `max_chars` is the document text one convening run may read, split
+        |   across the documents it was named. It replaces the per-source cap
+        |   above, which is sized for forty documents and cut a nine-page
+        |   contract at page five. 200,000 is roughly 50,000 input tokens, or
+        |   ninety pages for a single document; anything longer is still
+        |   truncated, and still flagged to the model as truncated.
+        |
         | `brief` — the Circle Steward's summary (spec 9).
         |   The judgement-heavy one: what the evidence shows, where it
         |   contradicts itself, what is missing. Reasoning over several
@@ -98,8 +106,9 @@ return [
         */
         'tasks' => [
             'convening' => [
-                'model'  => env('AGENT_MODEL_CONVENING', 'claude-sonnet-5'),
-                'effort' => env('AGENT_EFFORT_CONVENING', 'low'),
+                'model'     => env('AGENT_MODEL_CONVENING', 'claude-sonnet-5'),
+                'effort'    => env('AGENT_EFFORT_CONVENING', 'low'),
+                'max_chars' => (int) env('AGENT_MAX_CHARS_CONVENING', 200000),
             ],
             'brief' => [
                 'model'  => env('AGENT_MODEL_BRIEF', 'claude-sonnet-5'),
@@ -108,6 +117,33 @@ return [
             'authored' => [
                 'model'  => env('AGENT_MODEL_AUTHORED', 'claude-sonnet-5'),
                 'effort' => env('AGENT_EFFORT_AUTHORED', 'medium'),
+            ],
+
+            /*
+            | `routing` — which Circle is this meeting about? (spec 24)
+            |   A classification over a short list of names and purposes, and
+            |   the cheapest job here, so it is the one on Haiku 4.5 ($1/$5).
+            |   Effort is null, not low: Haiku 4.5 rejects the parameter.
+            |   Skipped entirely when the company has no Circles to choose from,
+            |   because a choice between nothing needs no model.
+            */
+            'routing' => [
+                'model'      => env('AGENT_MODEL_ROUTING', 'claude-haiku-4-5'),
+                'effort'     => env('AGENT_EFFORT_ROUTING'),
+                'max_tokens' => 1024,
+            ],
+
+            /*
+            | `transcript` — the Scribe reading a meeting against the plan.
+            |   Its writes land with nobody checking them, and deciding that
+            |   "the pad's done" means *this* goal, or that a date moved
+            |   rather than was merely discussed, is the judgement the whole
+            |   feature rests on. Sonnet at medium, and this is the task to raise
+            |   first if the log shows it closing the wrong work.
+            */
+            'transcript' => [
+                'model'  => env('AGENT_MODEL_TRANSCRIPT', 'claude-sonnet-5'),
+                'effort' => env('AGENT_EFFORT_TRANSCRIPT', 'medium'),
             ],
         ],
     ],

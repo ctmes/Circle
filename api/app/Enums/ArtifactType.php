@@ -21,4 +21,11 @@ enum ArtifactType: string
      * becomes are created by that person, not by the agent.
      */
     case ConvenedPlan       = 'convened_plan';
+
+    /**
+     * What the Scribe read in a meeting and what it did about it (spec 24):
+     * the summary, the raw operations, and the outcome of each. The ledger
+     * holds the actions; this holds the reading that produced them.
+     */
+    case MeetingRecord      = 'meeting_record';
 }

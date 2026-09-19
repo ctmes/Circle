@@ -3,7 +3,7 @@
 namespace App\Services\Convening;
 
 use App\Enums\PartyRole;
-use App\Services\Goals\GoalService;
+use App\Support\WorkingCalendar;
 use Carbon\CarbonImmutable;
 
 /**
@@ -37,7 +37,17 @@ class PlanResolver
      * @param  list<array>  $sources  What retrieval actually supplied.
      * @param  \DateTimeInterface|null  $anchor  Overrides the document's own commencement date.
      */
-    public function resolve(array $output, array $sources, ?\DateTimeInterface $anchor = null): array
+    /**
+     * @param  \DateTimeInterface|null  $fallback  Where periods are measured from when the
+     *         document states no commencement date of its own — the date of the
+     *         meeting a transcript records. It never overrides a stated date.
+     */
+    public function resolve(
+        array $output,
+        array $sources,
+        ?\DateTimeInterface $anchor = null,
+        ?\DateTimeInterface $fallback = null,
+    ): array
     {
         $notes = [];
 
@@ -59,7 +69,10 @@ class PlanResolver
                 . 'so every other date has been measured from the start date you supply.';
         }
 
-        $anchorDate = CarbonImmutable::instance($anchor ?? $documentCommencement ?? CarbonImmutable::now())
+        // A kickoff meeting says "the pad within three weeks" and names no
+        // commencement date. Measuring that from today, not from the meeting,
+        // put a March deliverable in October the first time it ran live.
+        $anchorDate = CarbonImmutable::instance($anchor ?? $documentCommencement ?? $fallback ?? CarbonImmutable::now())
             ->startOfDay();
 
         $parties = $this->resolveParties(
@@ -99,9 +112,12 @@ class PlanResolver
                 ),
             ],
             'anchor_date'    => $anchorDate->toDateString(),
-            'anchor_source'  => $anchor !== null
-                ? 'supplied'
-                : ($documentCommencement !== null ? 'document' : 'today'),
+            'anchor_source'  => match (true) {
+                $anchor !== null               => 'supplied',
+                $documentCommencement !== null => 'document',
+                $fallback !== null             => 'meeting',
+                default                        => 'today',
+            },
             'parties'        => array_values($parties),
             'plan'           => $steps,
             'open_questions' => $this->openQuestions($output['open_questions'] ?? null),
@@ -248,7 +264,9 @@ class PlanResolver
         array &$notes,
         int &$rejected,
     ): array {
-        $maxDepth = GoalService::maxDepth();
+        // The schema's ceiling, not the tree's: the two differ by the level
+        // kept free for people to break the work down further.
+        $maxDepth = ConveningSchema::maxLevel();
 
         $flat    = [];
         $lastAt  = [];
@@ -419,51 +437,13 @@ class PlanResolver
             return ['date' => null, 'note' => null];
         }
 
-        $date = match ($unit) {
-            'days'          => $anchor->addDays($value),
-            'weeks'         => $anchor->addWeeks($value),
-            'months'        => $anchor->addMonths($value),
-            'business_days' => $this->addBusinessDays($anchor, $value),
-            default         => null,
-        };
+        $date = WorkingCalendar::add($anchor, $value, $unit);
 
         if ($date === null) {
             return ['date' => null, 'note' => null];
         }
 
-        return [
-            'date' => $date,
-            'note' => sprintf(
-                '%d %s after %s%s',
-                $value,
-                // "1 days after" is the kind of thing a reviewer reads as
-                // sloppiness in the document rather than in us.
-                $value === 1
-                    ? rtrim(str_replace('_', ' ', $unit), 's')
-                    : str_replace('_', ' ', $unit),
-                $anchor->toDateString(),
-                $unit === 'business_days' ? ' (weekends excluded; no public holiday calendar is applied)' : '',
-            ),
-        ];
-    }
-
-    /**
-     * Weekdays only. There is no public holiday calendar in this system, and
-     * inventing one for a jurisdiction nobody has stated would produce dates
-     * that are confidently wrong rather than obviously approximate — so the
-     * note on every business-day date says exactly what was counted.
-     */
-    private function addBusinessDays(CarbonImmutable $from, int $days): CarbonImmutable
-    {
-        $date = $from;
-
-        for ($i = 0; $i < $days; $i++) {
-            do {
-                $date = $date->addDay();
-            } while ($date->isWeekend());
-        }
-
-        return $date;
+        return ['date' => $date, 'note' => WorkingCalendar::describe($value, $unit, $anchor)];
     }
 
     private function absoluteDate(mixed $schedule): ?CarbonImmutable

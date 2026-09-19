@@ -42,6 +42,21 @@ enum SideEffect: string
         };
     }
 
+    /**
+     * Whether an autonomous agent may run this with nobody's approval (§24).
+     *
+     * The ceiling is the Circle's own walls. Anything that reaches outside —
+     * an email, a connected system, a counterparty's records, money — is
+     * something a person must agree to no matter how the agent is configured,
+     * because the consequence lands somewhere this Circle's history cannot
+     * reverse. Inside the Circle, every write is on the chain, attributable to
+     * the agent, and undoable by a person who reads the log.
+     */
+    public function mayRunAutonomously(): bool
+    {
+        return in_array($this, [self::None, self::CircleWrite], true);
+    }
+
     /** Whether the approver must belong to the party bearing the consequence. */
     public function requiresOwningParty(): bool
     {
